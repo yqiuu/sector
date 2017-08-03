@@ -28,7 +28,7 @@ filterList = {"B435":os.path.join(inputDict, "HST_ACS_F435W.npy"),
               "3.6":os.path.join(inputDict,  "HST_IRAC_3.6.npy")}
 
  
-cdef:
+cdef extern from "mag_calc_cext.h":
     int **pFirstProgenitor
     int **pNextProgenitor
     float **pMetals
@@ -330,9 +330,7 @@ cdef extern from "mag_calc_cext.h":
                           int *indices, int nGal,
                           double *ageList, int nAgeList,
                           double *filters, int nRest, int nObs,
-                          double *absorption,
-                          int **pFP, int **pNP, float **pM, float **pS) 
-
+                          double *absorption)
 
 def get_output_name(snap, path):
     fname = "mags%03d.hdf5"%snap
@@ -458,9 +456,7 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
                          indices, nGal,
                          ageList, nAgeList,
                          filters, nRest, nObs,
-                         absorption,
-                         pFirstProgenitor, pNextProgenitor, pMetals, pSFR) 
-
+                         absorption)
         output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
         # Add distance modulus to apparent magnitudes
         output[:, nRest:] += cosmo.distmod(z).value

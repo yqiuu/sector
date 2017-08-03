@@ -17,10 +17,10 @@
 
 time_t sTime;
 // Meraxes output
-static int **pFirstProgenitor = NULL;
-static int **pNextProgenitor = NULL;
-static float **pMetals = NULL;
-static float **pSFR = NULL;
+int **pFirstProgenitor = NULL;
+int **pNextProgenitor = NULL;
+float **pMetals = NULL;
+float **pSFR = NULL;
 // Variable for galaxy merger tree
 struct node {
     short snap;
@@ -42,8 +42,8 @@ struct template {
     int nWaves;
     double *waves;
     int nZ;
-    // The first dimension of data represents both metallicity and age
-    // The second dimension of data represents wavelength
+    // The first dimension of data represents both metallicities and ages
+    // The second dimension of data represents wavelengths
     double **data;
 };
 
@@ -245,6 +245,10 @@ void integrate_sed_templates(double *ageList, int nAgeList,
     
     for(i = 0; i < spectra->nAge; ++i, report(i, spectra->nAge)) 
         for(j = 0; j < spectra->nWaves; ++j) {
+            // In this case the first dimension of data represents both age s
+            // and wavelengths 
+            // The second dimension of data represents metallicities
+            // This makes it easier to interpolate metallicities
             pData = refSpectra[i*spectra->nWaves + j];
             for(k = 0; k < NMETALS; ++k) {
                 get_integrand(integrand, rawSpectra, k, j);
@@ -267,7 +271,8 @@ void integrate_sed_templates(double *ageList, int nAgeList,
         for(j = 0; j < spectra->nAge; ++j) {
             pData = spectra->data[i*spectra->nAge + j];
             for(k = 0; k < spectra->nWaves; ++k) 
-                pData[k] = interp((double)i, refMetals, refSpectra[j*spectra->nWaves + k], NMETALS);
+                pData[k] = interp((double)i, refMetals, 
+                                  refSpectra[j*spectra->nWaves + k], NMETALS);
         }
     
     printf("# Interpolate SED templates in terms of metallicity\n");
@@ -432,8 +437,7 @@ void galaxy_mags_cext(float *pOutput,
                       int *indices, int nGal,
                       double *ageList, int nAgeList,
                       double *filters, int nRest, int nObs,
-                      double *absorption,
-                      int **pFP, int **pNP, float **pM, float **pS) {
+                      double *absorption) {
     int i;
     int nProg;
     int nWaves;
@@ -443,11 +447,6 @@ void galaxy_mags_cext(float *pOutput,
     struct template rawSpectra;
     struct template spectra;
     struct node branch[MAX_NODE];
-
-    pFirstProgenitor = pFP;
-    pNextProgenitor = pNP;
-    pMetals = pM;
-    pSFR = pS;
 
     read_sed_templates(&rawSpectra);   
     integrate_sed_templates(ageList, nAgeList, &spectra, &rawSpectra);
@@ -475,9 +474,6 @@ void galaxy_mags_cext(float *pOutput,
     free_template(&rawSpectra);
     free_template(&spectra);
 }
-
-
-
 
 
 
