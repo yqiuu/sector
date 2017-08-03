@@ -331,46 +331,6 @@ inline int trace_merger_tree(int snap, int galIdx, struct node *branch) {
 }
 
 
-void lyman_absorption(double *absorption, double z, double *obsWaves, int nWaves)
-{
-    int i;
-    double tau, zi;
-    for (i = 0; i < nWaves; ++i) {
-       if (obsWaves[i] < 912.*(1 + z)) 
-           absorption[i] = 0.;
-       // Ly-gamma absorption
-       else if (obsWaves[i] < 973.*(1 + z)) {
-           zi = obsWaves[i]/973. - 1.;
-           if (zi < 5.5)
-               tau = .19*pow((1 + zi)/5.0, 4.3);
-           else
-               tau = .034*pow((1 + zi)/5.0, 10.9);
-           absorption[i] = exp(-tau);
-       }
-       // Ly-beta absorption
-       else if (obsWaves[i] < 1026.*(1 + z)) {
-           zi = obsWaves[i]/1026. - 1.;
-           if (zi < 5.5)
-               tau = .38*pow((1 + zi)/5.0, 4.3);
-           else
-               tau = .067*pow((1 + zi)/5.0, 10.9);
-           absorption[i] = exp(-tau);
-       }
-       // Ly-alpha absorption
-       else if (obsWaves[i] < 1216.*(1 + z)) {
-           zi = obsWaves[i]/1216. - 1.;
-           if (zi < 5.5)
-               tau = .85*pow((1 + zi)/5.0, 4.3);
-           else
-               tau = .15*pow((1 + zi)/5.0, 10.9);
-           absorption[i] = exp(-tau);
-       }
-       else 
-           absorption[i] = 1.0;      
-    }
-}
-
-
 inline void compute_spectrum(double *spectrum, int cSnap,
                              struct node *branch, int nProg, struct template *spectra) {
     int i, j;
@@ -499,8 +459,6 @@ void galaxy_mags_cext(float *pOutput,
     obsWaves = (double*)malloc(nWaves*sizeof(double));
     for(i = 0; i < nWaves; ++i)
         obsWaves[i] = (1. + z)*spectra.waves[i];
-    //absorption = (double*)malloc(nWaves*sizeof(double));
-    //lyman_absorption(absorption, z, obsWaves, nWaves);
 
     for(i = 0; i < nGal; ++i, report(i, nGal)) {
         nProg = trace_merger_tree(snap, indices[i], branch);
@@ -514,7 +472,6 @@ void galaxy_mags_cext(float *pOutput,
 
     free(spectrum);
     free(obsWaves);
-    //free(absorption);
     free_template(&rawSpectra);
     free_template(&spectra);
 }

@@ -476,6 +476,7 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
         free(indices)       
         free(ageList)
         free(filters)
+        free(absorption)
         free(pOutput)
 
     free_meraxes(snapMin, snapMax)
