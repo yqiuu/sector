@@ -7,6 +7,8 @@
 #define MAX_NODE 100000 // Max length of galaxy merger tree
 #define NMETALS 5 // Number of input metallicity
 #define NUM_Z 40 // Number of interpolated metallicity
+#define MAX_Z 39 // Maximum metallicity index
+#define MIN_Z 0 // Minimum metallicity index
 #define NFILTER 10 // Number of input filters
 #define MAX_FILTER 100 // Max Number of filters
 
@@ -26,11 +28,13 @@ struct node {
     float sfr;
 };
 //
-char *sedPath[NMETALS] = {"Input/sed_0.001.bin",
-                           "Input/sed_0.004.bin",
-                           "Input/sed_0.008.bin",
-                           "Input/sed_0.020.bin",
-                           "Input/sed_0.040.bin"};
+char sedAge[] = "/lustre/projects/p113_astro/yqiu/magcalc/input/sed_age.bin";
+char sedWaves[] = "/lustre/projects/p113_astro/yqiu/magcalc/input/sed_waves.bin";
+char *sedTemplates[NMETALS] = {"/lustre/projects/p113_astro/yqiu/magcalc/input/sed_0.001.bin",
+                               "/lustre/projects/p113_astro/yqiu/magcalc/input/sed_0.004.bin",
+                               "/lustre/projects/p113_astro/yqiu/magcalc/input/sed_0.008.bin",
+                               "/lustre/projects/p113_astro/yqiu/magcalc/input/sed_0.020.bin",
+                               "/lustre/projects/p113_astro/yqiu/magcalc/input/sed_0.040.bin"};
 // Struct for SED templates
 struct template {
     int nAge;
@@ -88,7 +92,7 @@ void timing_end(void) {
 
 
 inline double interp(double xp, double *x, double *y, int nPts) {
-/* Interpolate a given points */
+    /* Interpolate a given points */
     int idx0, idx1, idxMid;
     if((xp < x[0]) || (xp > x[nPts - 1])) {
         printf("Error: The given point %10.5e is outside of the interpolation region\n", xp);
@@ -110,41 +114,57 @@ inline double interp(double xp, double *x, double *y, int nPts) {
 
 
 inline double trapz_table(double *y, double *x, int nPts, double a, double b) {
-/* Integrate tabular data from a to b */
+    /* Integrate tabular data from a to b */
     int i;
+    int idx0 = 0;
+    int idx1 = nPts - 1;
+    int idxMid;
     double ya, yb;
-    double I = 0.;
+    double I;
     if (x[0] > a) {
-        printf("Error: Integration range %10.5e is outside the tabular data\n", x[0]);
+        printf("Error: Integration range %10.5e is outside the tabular data\n", a);
         exit(0);
     }
     if (x[nPts - 1] < b) {
-        printf("Error: Integration range %10.5e is outside the tabular data\n", x[nPts - 1]); 
+        printf("Error: Integration range %10.5e is outside the tabular data\n", b); 
         exit(0);
     }
+    if (a > b) {
+        printf("Error: a must be smaller than b\n");
+        exit(0);
+    }
+    // Use bisection to search the interval that contains a
+    while(idx1 - idx0 > 1) {
+        idxMid = (idx0 + idx1)/2;
+        if (a > x[idxMid])
+            idx0 = idxMid;
+        else if (a < x[idxMid])
+            idx1 = idxMid;
+        else
+            break;
+    }
 
-    for(i = 0; i < nPts - 1; ++i) {
-        if ((x[i] <= a) && (x[i + 1] > a)) {
-            ya = y[i] + (y[i + 1] - y[i])*(a - x[i])/(x[i + 1] - x[i]);
-            if ((x[i] < b) && (x[i + 1] >= b)) {
-                yb = y[i] + (y[i + 1] - y[i])*(b - x[i])/(x[i + 1] - x[i]);
-                I = (b - a)*(yb + ya)/2.;
-                break;
-            }
-            else 
-                I += (x[i + 1] - a)*(y[i + 1] + ya)/2.;
-        }
-        else if ((x[i] < b) && (x[i + 1] >= b)) {
+    ya = y[idx0] + (y[idx1] - y[idx0])*(a - x[idx0])/(x[idx1] - x[idx0]);
+    if(b <= x[idx1]) {
+        yb = y[idx0] + (y[idx1] - y[idx0])*(b - x[idx0])/(x[idx1] - x[idx0]);
+        return (b - a)*(yb + ya)/2.;
+    }
+    else 
+        I = (x[idx1] - a)*(y[idx1] + ya)/2.;
+
+    for(i = idx1; i < nPts - 1; ++i) {
+        if (x[i + 1] < b)
+            I += (x[i + 1] - x[i])*(y[i + 1] + y[i])/2.;
+        else if (x[i] < b) {
             yb = y[i] + (y[i + 1] - y[i])*(b - x[i])/(x[i + 1] - x[i]);
             I += (b - x[i])*(yb + y[i])/2.;
         }
-        else if ((x[i] > a) && (x[i + 1] < b)) 
-            I += (x[i + 1] - x[i])*(y[i + 1] + y[i])/2.;
-        else if (x[i] > b)
+        else
             break;
     }
     return I;
 }
+
 
 inline double trapz(double *y, double *x, int nPts) {
     int i;
@@ -163,18 +183,21 @@ void free_template(struct template *spectra) {
 
 
 void read_sed_templates(struct template *spectra) {
-/* SED templates must be normalised to 1 M_sun with unit erg/s/A */
+    /* SED templates must be normalised to 1 M_sun with unit erg/s/A 
+     * Wavelength must be in a unit of angstrom
+     * Age must be in a unit of year 
+     */
     FILE *fp;
     int i, j;
 
     timing_start("# Read SED templates\n");
-    fp = open_file("Input/sed_age.bin", "r");
+    fp = open_file(sedAge, "r");
     fread(&spectra->nAge, sizeof(int), 1, fp);
     spectra->age = (double*)malloc(spectra->nAge*sizeof(double));
     fread(spectra->age, sizeof(double), spectra->nAge, fp);
     fclose(fp);
 
-    fp = open_file("Input/sed_waves.bin", "r");
+    fp = open_file(sedWaves, "r");
     fread(&spectra->nWaves, sizeof(int), 1, fp);
     spectra->waves = (double*)malloc(spectra->nWaves*sizeof(double));
     fread(spectra->waves, sizeof(double), spectra->nWaves, fp);
@@ -183,7 +206,7 @@ void read_sed_templates(struct template *spectra) {
     spectra->nZ = NMETALS;
     spectra->data = malloc_2dDouble(spectra->nZ*spectra->nAge, spectra->nWaves);
     for(i = 0; i < NMETALS; ++i) {
-        fp = open_file(sedPath[i], "r");
+        fp = open_file(sedTemplates[i], "r");
         for(j = 0; j < spectra->nAge; ++j) 
             fread(spectra->data[i*spectra->nAge + j], sizeof(double), spectra->nWaves, fp);
         fclose(fp);
@@ -267,10 +290,10 @@ void trace_progenitors(int snap, int galIdx, struct node *branch, int *pNProg) {
                 exit(0);
             }
             metals = (int)(pMetals[snap][galIdx]*1000 - .5);
-            if (metals < 0)
-                metals = 0;
-            else if (metals > 39)
-                metals = 39;
+            if (metals < MIN_Z)
+                metals = MIN_Z;
+            else if (metals > MAX_Z)
+                metals = MAX_Z;
             branch[*pNProg].snap = snap;
             branch[*pNProg].metals = metals;
             branch[*pNProg].sfr = sfr;
@@ -290,10 +313,10 @@ inline int trace_merger_tree(int snap, int galIdx, struct node *branch) {
     if (sfr > 0.) {
         ++nProg;
         metals = (int)(pMetals[snap][galIdx]*1000 - .5);
-        if (metals < 0)
-            metals = 0;
-        else if (metals > 39)
-            metals = 39;
+        if (metals < MIN_Z)
+            metals = MIN_Z;
+        else if (metals > MAX_Z)
+            metals = MAX_Z;
         branch[0].snap = snap;
         branch[0].metals = metals;
         branch[0].sfr = sfr;
@@ -449,6 +472,7 @@ void galaxy_mags_cext(float *pOutput,
                       int *indices, int nGal,
                       double *ageList, int nAgeList,
                       double *filters, int nRest, int nObs,
+                      double *absorption,
                       int **pFP, int **pNP, float **pM, float **pS) {
     int i;
     int nProg;
@@ -456,7 +480,6 @@ void galaxy_mags_cext(float *pOutput,
     int nTotal = nObs + nRest;
     double *spectrum;
     double *obsWaves;
-    double *absorption;
     struct template rawSpectra;
     struct template spectra;
     struct node branch[MAX_NODE];
@@ -476,8 +499,8 @@ void galaxy_mags_cext(float *pOutput,
     obsWaves = (double*)malloc(nWaves*sizeof(double));
     for(i = 0; i < nWaves; ++i)
         obsWaves[i] = (1. + z)*spectra.waves[i];
-    absorption = (double*)malloc(nWaves*sizeof(double));
-    lyman_absorption(absorption, z, obsWaves, nWaves);
+    //absorption = (double*)malloc(nWaves*sizeof(double));
+    //lyman_absorption(absorption, z, obsWaves, nWaves);
 
     for(i = 0; i < nGal; ++i, report(i, nGal)) {
         nProg = trace_merger_tree(snap, indices[i], branch);
@@ -491,7 +514,7 @@ void galaxy_mags_cext(float *pOutput,
 
     free(spectrum);
     free(obsWaves);
-    free(absorption);
+    //free(absorption);
     free_template(&rawSpectra);
     free_template(&spectra);
 }
