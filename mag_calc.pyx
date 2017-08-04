@@ -319,8 +319,8 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
 
 
 cdef extern from "mag_calc_cext.h":
-    void galaxy_mags_cext(float *pOutput, 
-                          double z, int snap,
+    void galaxy_mags_cext(float *mags, 
+                          double z, int tSnap,
                           int *indices, int nGal,
                           double *ageList, int nAgeList,
                           double *filters, int nRest, int nObs,
