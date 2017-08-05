@@ -29,10 +29,10 @@ filterList = {"B435":os.path.join(inputDict, "HST_ACS_F435W.npy"),
 
  
 cdef extern from "mag_calc_cext.h":
-    int **pFirstProgenitor
-    int **pNextProgenitor
-    float **pMetals
-    float **pSFR
+    int **firstProgenitor
+    int **nextProgenitor
+    float **galMetals
+    float **galSFR
 #========================================================================================
 
 
@@ -122,14 +122,14 @@ def read_meraxes(fname, int snapMax, h):
         int snap, N
         int[:] intMemview1, intMemview2
         float[:] floatMemview1, floatMemview2
-    global pFirstProgenitor 
-    global pNextProgenitor
-    global pMetals
-    global pSFR
-    pFirstProgenitor = <int**>malloc(snapNum*sizeof(int*))
-    pNextProgenitor = <int**>malloc(snapMax*sizeof(int*))
-    pMetals = <float**>malloc(snapNum*sizeof(float*))
-    pSFR = <float**>malloc(snapNum*sizeof(float*))
+    global firstProgenitor 
+    global nextProgenitor
+    global galMetals
+    global galSFR
+    firstProgenitor = <int**>malloc(snapNum*sizeof(int*))
+    nextProgenitor = <int**>malloc(snapMax*sizeof(int*))
+    galMetals = <float**>malloc(snapNum*sizeof(float*))
+    galSFR = <float**>malloc(snapNum*sizeof(float*))
 
     meraxes.set_little_h(h = h)
     for snap in xrange(snapMax, -1, -1):
@@ -139,8 +139,8 @@ def read_meraxes(fname, int snapMax, h):
                                         ["StellarMass", "MetalsStellarMass", "Sfr"])
             metals = gals["MetalsStellarMass"]/gals["StellarMass"]
             metals[isnan(metals)] = 0.001
-            pMetals[snap] = init_1d_float(metals)
-            pSFR[snap] = init_1d_float(gals["Sfr"])
+            galMetals[snap] = init_1d_float(metals)
+            galSFR[snap] = init_1d_float(gals["Sfr"])
             snapMin = snap
             gals = None
         except IndexError:
@@ -149,11 +149,11 @@ def read_meraxes(fname, int snapMax, h):
     print "# snapMin = %d"%snapMin
     for snap in xrange(snapMin, snapNum):
         # Copy first progenitor indices to the pointer
-        pFirstProgenitor[snap] = \
+        firstProgenitor[snap] = \
         init_1d_int(meraxes.io.read_firstprogenitor_indices(fname, snap))
         # Copy next progenitor indices to the pointer
         if snap < snapMax:
-            pNextProgenitor[snap] = \
+            nextProgenitor[snap] = \
             init_1d_int(meraxes.io.read_nextprogenitor_indices(fname, snap))
 
     timing_end()    
@@ -162,20 +162,20 @@ def read_meraxes(fname, int snapMax, h):
 
 cdef void free_meraxes(int snapMin, int snapMax):
     cdef int i
-    # There is no indices in pNextProgenitor[snapMax]
+    # There is no indices in nextProgenitor[snapMax]
     for i in xrange(snapMin, snapMax):
-        free(pNextProgenitor[i])
+        free(nextProgenitor[i])
 
     snapMax += 1
     for i in xrange(snapMin, snapMax):
-        free(pFirstProgenitor[i])
-        free(pMetals[i])
-        free(pSFR[i])
+        free(firstProgenitor[i])
+        free(galMetals[i])
+        free(galSFR[i])
 
-    free(pFirstProgenitor)
-    free(pNextProgenitor)
-    free(pMetals)
-    free(pSFR)
+    free(firstProgenitor)
+    free(nextProgenitor)
+    free(galMetals)
+    free(galSFR)
 
 def Lyman_absorption_Fan(double[:] obsWaves, double z):
     cdef:
@@ -516,7 +516,7 @@ def galaxy_spectra(fname, snap, indices, h):
                         z, snap,
                         cIndices, nGal,
                         cAgeList, nAgeList,
-                        pFirstProgenitor, pNextProgenitor, pMetals, pSFR)
+                        firstProgenitor, nextProgenitor, galMetals, galSFR)
 
     cdef:
         double[:] mvOutput = <double[:nGal*nWaves]>pOutput

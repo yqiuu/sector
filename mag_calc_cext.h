@@ -1,7 +1,7 @@
-int **pFirstProgenitor;
-int **pNextProgenitor;
-float **pMetals;
-float **pSFR;
+int **firstProgenitor;
+int **nextProgenitor;
+float **galMetals;
+float **galSFR;
 
 /*
 void galaxy_spectra_cext(double *pOutput, 
