@@ -13,14 +13,16 @@
 #define MAX_FILTER 100 // Max Number of filters
 
 #define SURFACE_AREA 1.1965e40 // 4*pi*(10 pc)**2 unit cm^2
+#define JANSKY(x) (3.34e4*(x)*(x)/SURFACE_AREA) // convert erg/s/A to Jy at 10 pc
+#define M_AB(x) (-2.5*log10(x) + 8.9) // convert Jansky to AB magnitude
 #define TOL 1e-50
 
 time_t sTime;
 // Meraxes output
-int **pFirstProgenitor = NULL;
-int **pNextProgenitor = NULL;
-float **pMetals = NULL;
-float **pSFR = NULL;
+int **firstProgenitor = NULL;
+int **nextProgenitor = NULL;
+float **galMetals = NULL;
+float **galSFR = NULL;
 // Variable for galaxy merger tree
 struct node {
     short snap;
@@ -233,7 +235,7 @@ void read_sed_templates(struct template *spectra) {
 }
 
 
-void get_integrand(double *integrand, struct template *spectra, int idxZ, int idxW) {
+inline void get_integrand(double *integrand, struct template *spectra, int idxZ, int idxW) {
     int i;
     for(i = 0; i < spectra->nAge; ++i) 
         integrand[i] = spectra->data[idxZ*spectra->nAge + i][idxW];
@@ -304,47 +306,36 @@ void init_templates_ph(double **fluxTmp, double z,
                        double *ageList, int nAgeList, 
                        double *filters, int nRest, int nObs,
                        double *absorption) {
-
     int i, j, k;
     double refMetals[NMETALS] = {0., 3., 7., 19., 39.};
-
-    double *pFilter;   
     int nFilter = nRest + nObs;
-
-    int nWaves;
+    double *pFilter;   
     struct template rawSpectra;
-    struct template spectra;
-    // Spectra used to be interploated along metallicities
+    int nWaves;
+    double *waves;
+    // Spectra after integration over time
+    // The first dimension refers to metallicites and ages
+    // The last dimension refers to wavelengths
+    double **spectra;
+    double *integrand;
+    // Spectra to be interploated along metallicities
     // The first dimension refers to filters and ages
     // Thw last dimension refers to metallicites
     double **refSpectra;
-    
     double *pData;
-    double *pWaves;
-    double *integrand;
 
     read_sed_templates(&rawSpectra);
     timing_start("# Process SED templates\n");
-   
-    spectra.nAge = nAgeList;
-    spectra.age = (double*)malloc(nAgeList*sizeof(double));
-    memcpy(spectra.age, ageList, nAgeList*sizeof(double));
-
-    nWaves = rawSpectra.nWaves;   
-    spectra.nWaves = nWaves;
-    spectra.waves = (double*)malloc(nWaves*sizeof(double));
-    memcpy(spectra.waves, rawSpectra.waves, nWaves*sizeof(double));
-    pWaves = spectra.waves;
-
-    spectra.nZ = NMETALS;
-    spectra.data = malloc_2d_double(NMETALS*nAgeList, nWaves);
-    
+    nWaves = rawSpectra.nWaves;
+    waves = (double*)malloc(nWaves*sizeof(double));
+    memcpy(waves, rawSpectra.waves, nWaves*sizeof(double));
     // Integrate raw SED templates over time
     printf("# Integrate SED templates over time\n");
+    spectra = malloc_2d_double(NMETALS*nAgeList, nWaves);
     integrand = (double*)malloc(rawSpectra.nAge*sizeof(double));
     for(i = 0; i < NMETALS; report(i++, NMETALS)) 
         for(j = 0; j < nAgeList; ++j) {
-            pData = spectra.data[i*nAgeList + j];
+            pData = spectra[i*nAgeList + j];
             for(k = 0; k < nWaves; ++k) {
                 get_integrand(integrand, &rawSpectra, i, k);
                 if (j == 0) {
@@ -361,28 +352,25 @@ void init_templates_ph(double **fluxTmp, double z,
                                            ageList[j - 1], ageList[j]);
             }
         }
+    free_template(&rawSpectra);
     free(integrand);
     
     // Intgrate SED templates over filters
     refSpectra = malloc_2d_double(nFilter*nAgeList, NMETALS);
     // Compute rest frame flux
+    // Unit Jy
     printf("# Compute rest frame flux\n");
-    for(i = 0; i < NMETALS; ++i)
-        for(j = 0; j < nAgeList; ++j) {
-            pData = spectra.data[i*nAgeList + j];
-            for(k = 0; k < nWaves; ++k)
-                // Unit Jy
-                pData[k] *= 3.34e4*pWaves[k]*pWaves[k]/SURFACE_AREA; 
-        }
-   //for(i = 0; i < 200; ++i)
-   //     printf("Flux = %.3e\n", spectra.data[0][i]);
-
-   for(i = 0; i < nRest; ++i) {
+    for(i = 0; i < NMETALS*nAgeList; ++i) {
+        pData = spectra[i];
+        for(k = 0; k < nWaves; ++k)
+            pData[k] *= JANSKY(waves[k]);
+    }
+    for(i = 0; i < nRest; ++i) {
         pFilter = filters + i*nWaves;
         for(j = 0; j < nAgeList; ++j) {
             pData = refSpectra[i*nAgeList + j];
             for(k = 0; k < NMETALS; ++k)
-                pData[k] = trapz_filter(pFilter, spectra.data[k*nAgeList + j], pWaves, nWaves);
+                pData[k] = trapz_filter(pFilter, spectra[k*nAgeList + j], waves, nWaves);
         }
     }
     // Compute observer frame flux
@@ -391,19 +379,18 @@ void init_templates_ph(double **fluxTmp, double z,
     // Note the flux in this case is a function frequency
     // Therefore the flux has a factor of 1 + z
     for(i = 0; i < nWaves; ++i)
-        pWaves[i] *= 1. + z;
-    for(i = 0; i < NMETALS; ++i)
-        for(j = 0; j < nAgeList; ++j) {
-            pData = spectra.data[i*nAgeList + j];
-            for(k = 0; k < nWaves; ++k)
-                pData[k] *= (1. + z)*absorption[k];
-        }
+        waves[i] *= 1. + z;
+    for(i = 0; i < NMETALS*nAgeList; ++i) {
+        pData = spectra[i];
+        for(k = 0; k < nWaves; ++k)
+            pData[k] *= (1. + z)*absorption[k];
+    }
     for(i = nRest; i < nFilter; ++i) {
         pFilter = filters + i*nWaves;
         for(j = 0; j < nAgeList; ++j) {
             pData = refSpectra[i*nAgeList + j];
             for(k = 0; k < NMETALS; ++k)
-                pData[k] = trapz_filter(pFilter, spectra.data[k*nAgeList + j], pWaves, nWaves);
+                pData[k] = trapz_filter(pFilter, spectra[k*nAgeList + j], waves, nWaves);
         }
     }
 
@@ -419,9 +406,8 @@ void init_templates_ph(double **fluxTmp, double z,
  
     timing_end();
     
+    free_2d_double(spectra, NMETALS*nAgeList);
     free_2d_double(refSpectra, nFilter*nAgeList); 
-    free_template(&rawSpectra);
-    free_template(&spectra);
 }
 
 
@@ -429,14 +415,14 @@ void trace_progenitors(int snap, int galIdx, struct node *branch, int *pNProg) {
     int metals;
     float sfr;
     if (galIdx >= 0) {
-        sfr = pSFR[snap][galIdx];
+        sfr = galSFR[snap][galIdx];
         if (sfr > 0.) {
             *pNProg += 1;
             if (*pNProg >= MAX_NODE) {
                 printf("Error: Number of progenitors exceeds MAX_NODE\n");
                 exit(0);
             }
-            metals = (int)(pMetals[snap][galIdx]*1000 - .5);
+            metals = (int)(galMetals[snap][galIdx]*1000 - .5);
             if (metals < MIN_Z)
                 metals = MIN_Z;
             else if (metals > MAX_Z)
@@ -446,8 +432,8 @@ void trace_progenitors(int snap, int galIdx, struct node *branch, int *pNProg) {
             branch[*pNProg].sfr = sfr;
             //printf("snap %d, metals %d, sfr %.3f\n", snap, metals, sfr);
         }
-        trace_progenitors(snap - 1, pFirstProgenitor[snap][galIdx], branch, pNProg);
-        trace_progenitors(snap, pNextProgenitor[snap][galIdx], branch, pNProg);
+        trace_progenitors(snap - 1, firstProgenitor[snap][galIdx], branch, pNProg);
+        trace_progenitors(snap, nextProgenitor[snap][galIdx], branch, pNProg);
     }
 }
 
@@ -455,20 +441,20 @@ void trace_progenitors(int snap, int galIdx, struct node *branch, int *pNProg) {
 inline int trace_merger_tree(int snap, int galIdx, struct node *branch) {
     int nProg = -1;
     int metals;
-    float sfr = pSFR[snap][galIdx];
+    float sfr = galSFR[snap][galIdx];
     
     if (sfr > 0.) {
         ++nProg;
-        metals = (int)(pMetals[snap][galIdx]*1000 - .5);
+        metals = (int)(galMetals[snap][galIdx]*1000 - .5);
         if (metals < MIN_Z)
             metals = MIN_Z;
         else if (metals > MAX_Z)
             metals = MAX_Z;
-        branch[0].snap = snap;
-        branch[0].metals = metals;
-        branch[0].sfr = sfr;
+        branch[nProg].snap = snap;
+        branch[nProg].metals = metals;
+        branch[nProg].sfr = sfr;
     }
-    trace_progenitors(snap - 1, pFirstProgenitor[snap][galIdx], branch, &nProg);
+    trace_progenitors(snap - 1, firstProgenitor[snap][galIdx], branch, &nProg);
     ++nProg;
     if (nProg == 0) {
         printf("Warning: snapshot %d, index %d\n", snap, galIdx);
@@ -510,10 +496,10 @@ void galaxy_spectra_cext(double *pOutput,
     struct template spectra;
     struct node branch[MAX_NODE];
 
-    pFirstProgenitor = pFP;
-    pNextProgenitor = pNP;
-    pMetals = pM;
-    pSFR = pS;
+    firstProgenitor = pFP;
+    nextProgenitor = pNP;
+    galMetals = pM;
+    galSFR = pS;
 
     read_sed_templates(&rawSpectra);   
     integrate_sed_templates(ageList, nAgeList, &spectra, &rawSpectra);
@@ -554,18 +540,13 @@ void galaxy_mags_cext(float *mags,
                       ageList, nAgeList, 
                       filters, nRest, nObs,
                       absorption);
-
-    //for(i = 0; i < nAgeList; ++i)
-    //    printf("Flux = %.3e, %.3e\n", fluxTmp[i][0], fluxTmp[i][1]);
-
-    //for(i = 0; i < nAgeList; ++i)
-    //    printf("Flux = %.3e, %.3e\n", fluxTmp[i*nAgeList][0], fluxTmp[i*nAgeList][1]);
     
     timing_start("# Compute magnitudes\n");
     for(i = 0; i < nGal; report(i++, nGal)) {
         nProg = trace_merger_tree(tSnap, indices[i], branch);
         // Initialise flux
-        for(j = 0; j < nFilter; flux[j++] = TOL);
+        for(j = 0; j < nFilter; ++j)
+            flux[j] = TOL;
         // Sum over contributions from all progentiors
         for(j = 0; j < nProg; ++j) {
             snap = branch[j].snap;
@@ -575,7 +556,8 @@ void galaxy_mags_cext(float *mags,
                 flux[k] += sfr*pData[k];
         }
         // Convert fluxes to magnitudes
-        for(j = 0; j < nFilter; *mags++ = -2.5*log10(flux[j++]) + 8.9);
+        for(j = 0; j < nFilter; ++j)
+            *mags++ = (float)M_AB(flux[j]);
     }
     timing_end();
     
