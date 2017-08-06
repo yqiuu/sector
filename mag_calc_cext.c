@@ -5,12 +5,11 @@
 #include<time.h>
 
 #define MAX_NODE 100000 // Max length of galaxy merger tree
+
 #define NMETALS 5 // Number of input metallicity
 #define NUM_Z 40 // Number of interpolated metallicity
 #define MAX_Z 39 // Maximum metallicity index
 #define MIN_Z 0 // Minimum metallicity index
-#define NFILTER 10 // Number of input filters
-#define MAX_FILTER 100 // Max Number of filters
 
 #define SURFACE_AREA 1.1965e40 // 4*pi*(10 pc)**2 unit cm^2
 #define JANSKY(x) (3.34e4*(x)*(x)/SURFACE_AREA) // Convert erg/s/A to Jy at 10 pc
@@ -115,7 +114,7 @@ inline double interp(double xp, double *x, double *y, int nPts) {
     /* Interpolate a given points */
     int idx0, idx1, idxMid;
     if((xp < x[0]) || (xp > x[nPts - 1])) {
-        printf("Error: The given point %10.5e is outside of the interpolation region\n", xp);
+        printf("Error: Point %10.5e is beyond the interpolation region\n", xp);
         exit(0);
     }
     idx0 = 0;
@@ -142,11 +141,11 @@ inline double trapz_table(double *y, double *x, int nPts, double a, double b) {
     double ya, yb;
     double I;
     if (x[0] > a) {
-        printf("Error: Integration range %10.5e is outside the tabular data\n", a);
+        printf("Error: Integration range %10.5e is beyond the tabular data\n", a);
         exit(0);
     }
     if (x[nPts - 1] < b) {
-        printf("Error: Integration range %10.5e is outside the tabular data\n", b); 
+        printf("Error: Integration range %10.5e is beyond the tabular data\n", b); 
         exit(0);
     }
     if (a > b) {
@@ -235,13 +234,6 @@ void read_sed_templates(struct template *spectra) {
 
     timing_end();
 }
-
-
-//inline void get_integrand(double *integrand, struct template *spectra, int idxZ, int idxW) {
-//    int i;
-//    for(i = 0; i < spectra->nAge; ++i) 
-//        integrand[i] = spectra->data[idxZ*spectra->nAge + i][idxW];
-//}
 
 
 double *init_templates_sp(double *ageList, int nAgeList) {
