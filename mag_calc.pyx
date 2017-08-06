@@ -1,4 +1,5 @@
 import os
+from warnings import warn
 from time import time
 from struct import unpack
 
@@ -350,7 +351,7 @@ cdef extern from "mag_calc_cext.h":
                             double *filters, int nRest, int nObs,
                             double *absorption)
 
-
+"""
 def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
     cdef:
         int i
@@ -412,6 +413,7 @@ def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
 
     if len(snapList) == 1:
         return spectra, waves
+"""
 
 
 def galaxy_mags(fname, snapList, idxList, h, Om0, 
@@ -504,7 +506,10 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
 def dust_extinction(M1600, z):
     # Reference Mason et al. 2015, equation 4
     #           Bouwens 2014 et al. 2014, Table 3
-    M1600 = np.asarray(M1600)
+    if isscalar(M1600):
+        M1600 = np.array([M1600])
+    else:
+        M1600 = np.asarray(M1600)
     c = -2.33
     M0 = -19.5
     sigma = .34
@@ -518,30 +523,29 @@ def dust_extinction(M1600, z):
     beta[M1600 >= M0] = \
     (intercept(z) - c)*np.exp(slope(z)*(M1600[M1600 >= M0] - M0)/(intercept(z) - c)) + c
     beta[M1600 < M0] = slope(z)*(M1600[M1600 < M0] - M0) + intercept(z)
-    return 4.43 + .79*log(10)*sigma**2 + 1.99*beta
+    A1600 = 4.43 + .79*log(10)*sigma**2 + 1.99*beta
+    if A1600.min() < 0.:
+        warn("Redshift %.3f is beyond the range of the dust model"%z)
+        A1600[:] = 0.
+    return A1600
 
 
 @vectorize
 def reddening_curve(lam):
     # Reference Calzetti et al. 2000, Liu et al. 2016
     lam *= 1e-4 # Convert angstrom to mircometer
-    Rv = 4.05
-    if (lam > 2.2):
-        slope = (2.659*1.04/2.2 - 2.659*1.04/2.19)/(2.2 - 2.19);
-        intercept = 2.659*(-1.857 + 1.04/2.2) + Rv;
-        k = slope*(lam - 2.2) + intercept
-    if (lam >= 0.63):
-        k = 2.569*(-1.857 + 1.04/lam) + Rv
-    elif (lam >= 0.12):
-        k = 2.569*(-2.156 + 1.509/lam -0.198/lam**2 + 0.011/lam**3) + Rv
-    elif (lam >= 0.05):
-        slope = (2.659*(1.509/0.125 - 0.198/(0.125*0.125) + 0.011/0.125**3) -
-                 2.659*(1.509/0.120 - 0.198/(0.120*0.120) + 0.011/0.120**3))/(0.125 - 0.120)
-        intercept = 2.659*(-2.156 + 1.509/0.12 - 0.198/(0.12*0.12) + 0.011/0.12**3) + Rv
-        k = slope*(lam - 0.12) + intercept
+    if lam < .12 or lam > 2.2:
+        warn("Warning: wavelength is beyond the range of the reddening curve")
+    if lam < .091:
+        return 0.
+    elif lam < .12:
+        return -92.44949*lam + 23.21331
+    elif lam < .63:
+        return 2.659*(-2.156 + 1.509/lam - 0.198/lam**2 + 0.011/lam**3) + 4.05
+    elif lam < 2.2:
+        return  2.659*(-1.857 + 1.040/lam) + 4.05
     else:
-        raise ValueError("%.3f is beyond the range of the reddening curve"%lam)
-    return k
+        return max(0., -.57136*lam + 1.62620)
 
 
 def reddening(waves, M1600, z):
