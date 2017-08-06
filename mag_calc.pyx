@@ -66,7 +66,7 @@ cdef double *init_1d_double(double[:] memview):
 def timing_start(text):
     global sTime
     sTime = time()
-    print "#*******************************************************************************"
+    print "#**********************************************************"
     print text
  
 
@@ -75,7 +75,7 @@ def timing_end():
     elapsedTime = int(time() - sTime)
     print "# Done!"
     print "# Elapsed time: %i min %i sec"%(elapsedTime/60, elapsedTime%60)
-    print "#*******************************************************************************\n"
+    print "#**********************************************************\n"
 
 
 def get_wavelength():
@@ -318,22 +318,13 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
     return np.asarray(absorption)
 
 
-cdef extern from "mag_calc_cext.h":
-    void galaxy_mags_cext(float *mags, 
-                          double z, int tSnap,
-                          int *indices, int nGal,
-                          double *ageList, int nAgeList,
-                          double *filters, int nRest, int nObs,
-                          double *absorption)
-
-
-def get_output_name(snap, path):
-    fname = "mags%03d.hdf5"%snap
+def get_output_name(prefix, snap, path):
+    fname = prefix + "%03d.hdf5"%snap
     # Avoid repeated name
     idx = 2
     fileList = os.listdir(path)
     while fname in fileList:
-        fname = "mags%03d_%d.hdf5"%(snap, idx)
+        fname = prefix + "%03d_%d.hdf5"%(snap, idx)
         idx += 1
     return os.path.join(path, fname)
 
@@ -344,6 +335,83 @@ def get_age_list(fname, snap, nAgeList, h):
     for i in xrange(nAgeList):
         ageList[i] = travelTime[snap - i - 1] - travelTime[snap]
     return ageList
+
+
+cdef extern from "mag_calc_cext.h":
+    float *galaxy_spectra_cext(double z, int tSnap, 
+                               int *indices, int nGal,
+                               double *ageList, int nAgeList,
+                               int nWaves)
+
+
+    float *galaxy_mags_cext(double z, int tSnap,
+                            int *indices, int nGal,
+                            double *ageList, int nAgeList,
+                            double *filters, int nRest, int nObs,
+                            double *absorption)
+
+
+def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
+    cdef:
+        int i
+        int snap, nSnap
+        int sanpMin, snapMax
+
+    if isscalar(snapList):
+        snapMax = snapList
+        nSnap = 1
+        snapList = [snapList]
+        idxList = [idxList]
+    else:
+        snapMax = max(snapList)
+        nSnap = len(snapList)
+
+    snapMin = read_meraxes(fname, snapMax, h)
+
+    waves = get_wavelength()
+    cdef:
+        int nWaves = len(waves)
+        int nGal
+        int *indices
+
+        int nAgeList
+        double *ageList
+
+        double z
+        
+        float *cOutput 
+        float[:] mvOutput
+        float[:] mvSpectra
+
+    for i in xrange(nSnap):
+        snap = snapList[i]
+        galIndices = idxList[i]
+        nGal = len(galIndices)
+        indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+        nAgeList = snap - snapMin + 1
+        ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
+        z = meraxes.io.grab_redshift(fname, snap)
+
+        cOutput = galaxy_spectra_cext(z, snap, indices, nGal, ageList, nAgeList, nWaves)
+        mvOutput = <float[:nGal*nWaves]>cOutput
+
+        DataFrame(np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1), 
+                  index = galIndices, columns = waves). \
+        to_hdf(get_output_name("spectra", snap, path), "w")
+
+        if len(snapList) == 1:
+            mvSpectra = np.zeros(nGal*nWaves, dtype = 'f4')
+            mvSpectra[...] = mvOutput
+            spectra = np.asarray(mvSpectra, dtype = 'f4').reshape(nGal, -1)
+
+        free(indices)       
+        free(ageList)
+        free(cOutput)
+
+    free_meraxes(snapMin, snapMax)
+
+    if len(snapList) == 1:
+        return spectra, waves
 
 
 def galaxy_mags(fname, snapList, idxList, h, Om0, 
@@ -382,7 +450,7 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
         double *filters 
         double *absorption
         
-        float *pOutput 
+        float *cOutput 
         float[:] mvOutput
         float[:] mvMags
 
@@ -403,21 +471,18 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
         filters = init_1d_double(read_filters(restFrame, obsBands, z))
         absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
 
-        pOutput = <float*>malloc(nGal*(nRest + nObs)*sizeof(float))
-        mvOutput = <float[:nGal*(nRest + nObs)]>pOutput
-
-        galaxy_mags_cext(pOutput, 
-                         z, snap,
-                         indices, nGal,
-                         ageList, nAgeList,
-                         filters, nRest, nObs,
-                         absorption)
+        cOutput = galaxy_mags_cext(z, snap,
+                                   indices, nGal,
+                                   ageList, nAgeList,
+                                   filters, nRest, nObs,
+                                   absorption)
+        mvOutput = <float[:nGal*(nRest + nObs)]>cOutput
         output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
         # Add distance modulus to apparent magnitudes
         output[:, nRest:] += cosmo.distmod(z).value
 
         DataFrame(output, index = galIndices, columns = names).\
-        to_hdf(get_output_name(snap, path), "w")
+        to_hdf(get_output_name("mags", snap, path), "w")
 
         if len(snapList) == 1:
             mvMags = np.zeros(nGal*(nRest + nObs), dtype = 'f4')
@@ -428,7 +493,7 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
         free(ageList)
         free(filters)
         free(absorption)
-        free(pOutput)
+        free(cOutput)
 
     free_meraxes(snapMin, snapMax)
 
@@ -488,47 +553,5 @@ def reddening(waves, M1600, z):
     else:
         waves = np.asarray(waves)
         return reddening_curve(waves)/reddening_curve(1600.)*A1600.reshape(-1, 1)
-
-
-"""
-def galaxy_spectra(fname, snap, indices, h):
-    cdef:
-        int nAgeList = snap - read_meraxes(fname, snap, h) + 1
-        double *cAgeList = <double*>malloc(nAgeList*sizeof(double))
-        double[:] mvCAgeList = <double[:nAgeList]>cAgeList
-        double[:] mvAgeList = get_age_list(fname, snap, nAgeList, h)
-    mvCAgeList[...]= mvAgeList
- 
-    cdef: 
-        int nGal = len(indices)
-        int *cIndices = <int*>malloc(nGal*sizeof(int)) 
-        int[:] mvCIndices = <int[:nGal]>cIndices
-        int[:] mvIndices = np.array(indices, dtype = 'i4')
-    mvCIndices[...] = mvIndices
-
-    waves = get_wavelength()
-    nWaves = len(waves)
-    cdef:
-        double *pOutput = <double*>malloc(nGal*nWaves*sizeof(double))
-        double z = meraxes.io.grab_redshift(fname, snap)
-
-    galaxy_spectra_cext(pOutput, 
-                        z, snap,
-                        cIndices, nGal,
-                        cAgeList, nAgeList,
-                        firstProgenitor, nextProgenitor, galMetals, galSFR)
-
-    cdef:
-        double[:] mvOutput = <double[:nGal*nWaves]>pOutput
-        double[:] mvSpectra = np.zeros(nGal*nWaves, dtype = 'f8')
-    mvSpectra[...] = mvOutput
-    
-    free(cAgeList)
-    free(cIndices)
-    free(pOutput)
-    free_meraxes()
-
-    return np.vstack([waves, np.asarray(mvSpectra).reshape(-1, nWaves)])
-"""
 
 

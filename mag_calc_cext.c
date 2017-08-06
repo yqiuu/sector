@@ -13,9 +13,9 @@
 #define MAX_FILTER 100 // Max Number of filters
 
 #define SURFACE_AREA 1.1965e40 // 4*pi*(10 pc)**2 unit cm^2
-#define JANSKY(x) (3.34e4*(x)*(x)/SURFACE_AREA) // convert erg/s/A to Jy at 10 pc
-#define M_AB(x) (-2.5*log10(x) + 8.9) // convert Jansky to AB magnitude
-#define TOL 1e-50
+#define JANSKY(x) (3.34e4*(x)*(x)/SURFACE_AREA) // Convert erg/s/A to Jy at 10 pc
+#define M_AB(x) (-2.5*log10(x) + 8.9) // Convert Jansky to AB magnitude
+#define TOL 1e-50 // Minimum Flux
 
 time_t sTime;
 // Meraxes output
@@ -92,13 +92,13 @@ void free_2d_double(double **p, int nRow) {
 void free_template(struct template *spectra) {
     free(spectra->age);
     free(spectra->waves);
-    free_2d_double(spectra->data, spectra->nZ*spectra->nAge);
+    free_2d_double(spectra->data, spectra->nZ*spectra->nWaves);
 }
 
 
 void timing_start(char* text) {
     sTime = time(NULL);
-    printf("#*******************************************************************************\n");
+    printf("#**********************************************************\n");
     printf(text);
 }
 
@@ -107,7 +107,7 @@ void timing_end(void) {
     elapsedTime = (int)difftime(time(NULL), sTime);
     printf("# Done!\n");
     printf("# Elapsed time: %d min %d sec\n", elapsedTime/60, elapsedTime%60);
-    printf("#*******************************************************************************\n\n");
+    printf("#**********************************************************\n\n");
 }
 
 
@@ -203,8 +203,10 @@ inline double trapz_filter(double *filter, double *flux, double *waves, int nWav
 
 void read_sed_templates(struct template *spectra) {
     /* SED templates must be normalised to 1 M_sun with unit erg/s/A 
-     * Wavelength must be in a unit of angstrom
-     * Age must be in a unit of year 
+     * Wavelengths must be in a unit of angstrom
+     * Ages must be in a unit of year 
+     * The first dimension of templates must be wavelengths
+     * The last dimension of templates must be ages
      */
     FILE *fp;
     int i, j;
@@ -223,11 +225,11 @@ void read_sed_templates(struct template *spectra) {
     fclose(fp);
 
     spectra->nZ = NMETALS;
-    spectra->data = malloc_2d_double(spectra->nZ*spectra->nAge, spectra->nWaves);
+    spectra->data = malloc_2d_double(spectra->nZ*spectra->nWaves, spectra->nAge);
     for(i = 0; i < NMETALS; ++i) {
         fp = open_file(sedTemplates[i], "r");
-        for(j = 0; j < spectra->nAge; ++j) 
-            fread(spectra->data[i*spectra->nAge + j], sizeof(double), spectra->nWaves, fp);
+        for(j = 0; j < spectra->nWaves; ++j) 
+            fread(spectra->data[i*spectra->nWaves + j], sizeof(double), spectra->nAge, fp);
         fclose(fp);
     }
 
@@ -235,77 +237,78 @@ void read_sed_templates(struct template *spectra) {
 }
 
 
-inline void get_integrand(double *integrand, struct template *spectra, int idxZ, int idxW) {
-    int i;
-    for(i = 0; i < spectra->nAge; ++i) 
-        integrand[i] = spectra->data[idxZ*spectra->nAge + i][idxW];
-}
+//inline void get_integrand(double *integrand, struct template *spectra, int idxZ, int idxW) {
+//    int i;
+//    for(i = 0; i < spectra->nAge; ++i) 
+//        integrand[i] = spectra->data[idxZ*spectra->nAge + i][idxW];
+//}
 
 
-void integrate_sed_templates(double *ageList, int nAgeList, 
-                             struct template *spectra, struct template *rawSpectra) {
+double *init_templates_sp(double *ageList, int nAgeList) {
     int i, j, k;
     double refMetals[NMETALS] = {0., 3., 7., 19., 39.};
+    struct template rawSpectra;
+    int nWaves = 1221;
+    double *waves;
+    // Spectra to be interploated along metallicities
+    // The first dimension refers to ages and wavelengths
+    // The last dimension refers to metallicites
     double **refSpectra;
+    // Output
+    // The first dimension refers to metallicites
+    // The second dimension refers to ages
+    // The last dimension refers to wavelengths
+    double *fluxTmp;
     double *pData;
-    double *integrand = (double*)malloc(rawSpectra->nAge*sizeof(double));
 
+    read_sed_templates(&rawSpectra);
     timing_start("# Process SED templates\n");
-    spectra->nAge = nAgeList;
-    spectra->age = (double*)malloc(nAgeList*sizeof(double));
-    memcpy(spectra->age, ageList, nAgeList*sizeof(double));
-
-    spectra->nWaves = rawSpectra->nWaves;
-    spectra->waves = (double*)malloc(spectra->nWaves*sizeof(double));
-    memcpy(spectra->waves, rawSpectra->waves, rawSpectra->nWaves*sizeof(double));
+    nWaves = rawSpectra.nWaves;
+    waves = (double*)malloc(nWaves*sizeof(double));
+    memcpy(waves, rawSpectra.waves, nWaves*sizeof(double));
+    // Integrate raw SED templates over time
+    printf("# Integrate SED templates over time\n");
+    refSpectra = malloc_2d_double(nAgeList*nWaves, NMETALS);
     
-    spectra->nZ = NUM_Z;
-    refSpectra = malloc_2d_double(spectra->nAge*spectra->nWaves, NMETALS);
-    
-    for(i = 0; i < spectra->nAge; ++i, report(i, spectra->nAge)) 
-        for(j = 0; j < spectra->nWaves; ++j) {
-            // In this case the first dimension of data represents both age s
-            // and wavelengths 
-            // The second dimension of data represents metallicities
-            // This makes it easier to interpolate metallicities
-            pData = refSpectra[i*spectra->nWaves + j];
+    for(i = 0; i < nAgeList; report(i++, nAgeList)) 
+        for(j = 0; j < nWaves; ++j)  {
+            pData = refSpectra[i*nWaves + j];
             for(k = 0; k < NMETALS; ++k) {
-                get_integrand(integrand, rawSpectra, k, j);
                 if (i == 0) {
                     // The first time step of SED templates is typicall not zero
                     // Here assumes that the templates is constant beween zero
                     // and the first time step
-                    pData[k] = integrand[0]*rawSpectra->age[0];
-                    pData[k] += trapz_table(integrand, rawSpectra->age, rawSpectra->nAge, 
-                                            rawSpectra->age[0], ageList[i]);
+                    pData[k] = rawSpectra.data[k*nWaves + j][0]*rawSpectra.age[0];
+                    pData[k] += trapz_table(rawSpectra.data[k*nWaves + j],
+                                            rawSpectra.age, rawSpectra.nAge, 
+                                            rawSpectra.age[0], ageList[i]);
                 }
                 else
-                    pData[k] = trapz_table(integrand, rawSpectra->age, rawSpectra->nAge, 
+                    pData[k] = trapz_table(rawSpectra.data[k*nWaves + j], 
+                                           rawSpectra.age, rawSpectra.nAge, 
                                            ageList[i - 1], ageList[i]);
+                // Convert to rest frame flux                       
+                pData[k] *= JANSKY(waves[j]);
             }
         }
-
-    printf("# Interpolate SED templates in terms of metallicity\n");
-    spectra->data = malloc_2d_double(spectra->nZ*spectra->nAge, spectra->nWaves);
-    for(i = 0; i < spectra->nZ; ++i)
-        for(j = 0; j < spectra->nAge; ++j) {
-            pData = spectra->data[i*spectra->nAge + j];
-            for(k = 0; k < spectra->nWaves; ++k) 
-                pData[k] = interp((double)i, refMetals, 
-                                  refSpectra[j*spectra->nWaves + k], NMETALS);
-        }
-    
-    timing_end();
-    
+    free_template(&rawSpectra);
+    // Interpolate SED templates along metallicites
+    printf("# Interpolate SED templates along metallicities\n");
+    fluxTmp = (double*)malloc(NUM_Z*nAgeList*nWaves*sizeof(double));
+    pData = fluxTmp;
+    for(i = 0; i < NUM_Z; ++i)
+        for(j = 0; j < nAgeList; ++j) 
+            for(k = 0; k < nWaves; ++k) 
+                *pData++ = interp((double)i, refMetals, refSpectra[j*nWaves + k], NMETALS);
+        
     free(refSpectra);
-    free(integrand);
+    timing_end();
+    return fluxTmp;
 }
 
 
-void init_templates_ph(double **fluxTmp, double z,
-                       double *ageList, int nAgeList, 
-                       double *filters, int nRest, int nObs,
-                       double *absorption) {
+double *init_templates_ph(double z, double *ageList, int nAgeList, 
+                          double *filters, int nRest, int nObs, double *absorption) {
     int i, j, k;
     double refMetals[NMETALS] = {0., 3., 7., 19., 39.};
     int nFilter = nRest + nObs;
@@ -317,11 +320,15 @@ void init_templates_ph(double **fluxTmp, double z,
     // The first dimension refers to metallicites and ages
     // The last dimension refers to wavelengths
     double **spectra;
-    double *integrand;
     // Spectra to be interploated along metallicities
     // The first dimension refers to filters and ages
     // Thw last dimension refers to metallicites
     double **refSpectra;
+    // Output
+    // The first dimension refers to metallicites
+    // The second dimension refers to ages
+    // The last dimension refers to wavelengths
+    double *fluxTmp;
     double *pData;
 
     read_sed_templates(&rawSpectra);
@@ -332,29 +339,27 @@ void init_templates_ph(double **fluxTmp, double z,
     // Integrate raw SED templates over time
     printf("# Integrate SED templates over time\n");
     spectra = malloc_2d_double(NMETALS*nAgeList, nWaves);
-    integrand = (double*)malloc(rawSpectra.nAge*sizeof(double));
     for(i = 0; i < NMETALS; report(i++, NMETALS)) 
         for(j = 0; j < nAgeList; ++j) {
             pData = spectra[i*nAgeList + j];
             for(k = 0; k < nWaves; ++k) {
-                get_integrand(integrand, &rawSpectra, i, k);
                 if (j == 0) {
                     // The first time step of SED templates is typicall not zero
                     // Here assumes that the templates is constant beween zero
                     // and the first time step
-                    pData[k] = integrand[0]*rawSpectra.age[0];
-                    pData[k] += trapz_table(integrand, rawSpectra.age, rawSpectra.nAge, 
+                    pData[k] = rawSpectra.data[i*nWaves + k][0]*rawSpectra.age[0];
+                    pData[k] += trapz_table(rawSpectra.data[i*nWaves + k],
+                                            rawSpectra.age, rawSpectra.nAge, 
                                             rawSpectra.age[0], ageList[j]);
 
                 }
                 else
-                    pData[k] = trapz_table(integrand, rawSpectra.age, rawSpectra.nAge, 
+                    pData[k] = trapz_table(rawSpectra.data[i*nWaves + k], 
+                                           rawSpectra.age, rawSpectra.nAge, 
                                            ageList[j - 1], ageList[j]);
             }
         }
     free_template(&rawSpectra);
-    free(integrand);
-    
     // Intgrate SED templates over filters
     refSpectra = malloc_2d_double(nFilter*nAgeList, NMETALS);
     // Compute rest frame flux
@@ -393,21 +398,19 @@ void init_templates_ph(double **fluxTmp, double z,
                 pData[k] = trapz_filter(pFilter, spectra[k*nAgeList + j], waves, nWaves);
         }
     }
-
     // Interploate SED templates along metallicities
     printf("# Interpolate SED templates along metallicities\n");
+    fluxTmp = (double*)malloc(NUM_Z*nAgeList*nFilter*sizeof(double));
+    pData = fluxTmp;
     for(i = 0; i < NUM_Z; ++i)
-        for(j = 0; j < nAgeList; ++j) {
-            pData = fluxTmp[i*nAgeList + j];
+        for(j = 0; j < nAgeList; ++j) 
             for(k = 0; k < nFilter; ++k) 
-                pData[k] = interp((double)i, refMetals, 
-                                  refSpectra[k*nAgeList + j], NMETALS);
-        }
- 
-    timing_end();
-    
+                *pData++ = interp((double)i, refMetals, refSpectra[k*nAgeList + j], NMETALS);
+
     free_2d_double(spectra, NMETALS*nAgeList);
     free_2d_double(refSpectra, nFilter*nAgeList); 
+    timing_end();
+    return fluxTmp;   
 }
 
 
@@ -484,85 +487,86 @@ inline void compute_spectrum(double *spectrum, int cSnap,
 }
 
 
-/*
-void galaxy_spectra_cext(double *pOutput, 
-                         double z, int snap,
-                         int *indices, int nGal,
-                         double *ageList, int nAgeList,
-                         int **pFP, int **pNP, float **pM, float **pS) {
-    int i;
-    int nProg;
-    struct template rawSpectra;
-    struct template spectra;
-    struct node branch[MAX_NODE];
-
-    firstProgenitor = pFP;
-    nextProgenitor = pNP;
-    galMetals = pM;
-    galSFR = pS;
-
-    read_sed_templates(&rawSpectra);   
-    integrate_sed_templates(ageList, nAgeList, &spectra, &rawSpectra);
-
-    timing_start("# Compute SEDs\n");
-    
-    for(i = 0; i < nGal; ++i, report(i, nGal)) {
-        nProg = trace_merger_tree(snap, indices[i], branch);
-        compute_spectrum(pOutput + i*spectra.nWaves, snap, branch, nProg, &spectra);
-    }
-
-    timing_end();
-    
-    free_template(&rawSpectra);
-    free_template(&spectra);
-}
-*/
-
-void galaxy_mags_cext(float *mags, 
-                      double z, int tSnap,
-                      int *indices, int nGal,
-                      double *ageList, int nAgeList,
-                      double *filters, int nRest, int nObs,
-                      double *absorption) {
+float *galaxy_spectra_cext(double z, int tSnap, 
+                           int *indices, int nGal,
+                           double *ageList, int nAgeList,
+                           int nWaves) {
     int i, j, k;
-
-    int nFilter = nObs + nRest;
-    double **fluxTmp = malloc_2d_double(NUM_Z*nAgeList, nFilter);
-    double *flux = (double*)malloc(nFilter*sizeof(double));
+    double *fluxTmp = init_templates_sp(ageList, nAgeList);
+    double *flux = malloc(nWaves*sizeof(double));
     double *pData;
 
+    float *output = malloc(nGal*nWaves*sizeof(float));
+    float *pOutput = output;
+
     int nProg;
     struct node branch[MAX_NODE];
-    int snap;
     double sfr;
 
-    init_templates_ph(fluxTmp, z,
-                      ageList, nAgeList, 
-                      filters, nRest, nObs,
-                      absorption);
+    timing_start("# Compute SEDs\n");
+    for(i = 0; i < nGal; report(i++, nGal)) {
+        nProg = trace_merger_tree(tSnap, indices[i], branch);
+        // Initialise fluxes
+        for(j = 0; j < nWaves; ++j)
+            flux[j] = TOL;
+        // Sum contributions from all progenitors
+        for(j = 0; j < nProg; ++j) {
+            sfr = branch[j].sfr;
+            pData = fluxTmp + (branch[j].metals*nAgeList + tSnap - branch[j].snap)*nWaves;
+            for(k = 0; k < nWaves; ++k) 
+                flux[k] += sfr*pData[k];    
+        }       
+        // Store output
+        for(j = 0; j < nWaves; ++j)
+            *pOutput++ = (float)flux[j];
+    }
+    free(flux);
+    free(fluxTmp);
+    timing_end();
+    return output;
+}
+
+
+float *galaxy_mags_cext(double z, int tSnap,
+                        int *indices, int nGal,
+                        double *ageList, int nAgeList,
+                        double *filters, int nRest, int nObs,
+                        double *absorption) {
+    int i, j, k;
+    int nFilter = nObs + nRest;
+    double *fluxTmp = init_templates_ph(z, ageList, nAgeList, filters, 
+                                        nRest, nObs, absorption);
+    double *flux = malloc(nFilter*sizeof(double));
+    double *pData;
+
+    float *output = malloc(nGal*nFilter*sizeof(float));
+    float *pOutput = output;
+
+    int nProg;
+    struct node branch[MAX_NODE];
+    double sfr;
     
     timing_start("# Compute magnitudes\n");
     for(i = 0; i < nGal; report(i++, nGal)) {
         nProg = trace_merger_tree(tSnap, indices[i], branch);
-        // Initialise flux
+        // Initialise fluxes
         for(j = 0; j < nFilter; ++j)
             flux[j] = TOL;
-        // Sum over contributions from all progentiors
+        // Sum contributions from all progentiors
         for(j = 0; j < nProg; ++j) {
-            snap = branch[j].snap;
             sfr = branch[j].sfr;    
-            pData = fluxTmp[branch[j].metals*nAgeList + tSnap - snap];
+            pData = fluxTmp + (branch[j].metals*nAgeList + tSnap - branch[j].snap)*nFilter;
             for(k = 0 ; k < nFilter; ++k) 
                 flux[k] += sfr*pData[k];
         }
         // Convert fluxes to magnitudes
         for(j = 0; j < nFilter; ++j)
-            *mags++ = (float)M_AB(flux[j]);
+            *pOutput++ = (float)M_AB(flux[j]);
     }
-    timing_end();
-    
     free(flux);
-    free_2d_double(fluxTmp, nFilter);
+    free(fluxTmp);
+    timing_end();
+    return output;
 }
 
 
