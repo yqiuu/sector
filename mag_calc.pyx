@@ -536,9 +536,7 @@ def reddening_curve(lam):
     lam *= 1e-4 # Convert angstrom to mircometer
     if lam < .12 or lam > 2.2:
         warn("Warning: wavelength is beyond the range of the reddening curve")
-    if lam < .091:
-        return 0.
-    elif lam < .12:
+    if lam < .12:
         return -92.44949*lam + 23.21331
     elif lam < .63:
         return 2.659*(-2.156 + 1.509/lam - 0.198/lam**2 + 0.011/lam**3) + 4.05
