@@ -310,10 +310,11 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
                 tau += .211*(1. + z)**2. - 7.66e-2*(1. + z)**2.3*ratio**-.3 - .135*ratio**2.
         else:
             if ratio < 3.:
-                tau += .634 + 4.7e-2*(1. + z)**3. - 1.78e-2*(1. + z)**3.3*ratio**-.3
+                tau += .634 + 4.7e-2*(1. + z)**3. - 1.78e-2*(1. + z)**3.3*ratio**-.3 \
+                       -.135*ratio**2. - .291*ratio**-.3
             elif ratio < 1. + z:
-                tau += 4.7e-2*(1. + z)**3. - 1.78e-2*(1. + z)**3.3*ratio**-.3 - \
-                       2.92e-2*ratio**3.
+                tau += 4.7e-2*(1. + z)**3. - 1.78e-2*(1. + z)**3.3*ratio**-.3 \
+                       -2.92e-2*ratio**3.
         absorption[i] = exp(-tau)
 
     return np.asarray(absorption)
