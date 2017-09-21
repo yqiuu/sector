@@ -80,6 +80,9 @@ def timing_end():
 
 
 def get_wavelength():
+    """
+    Return wavelengths of SED templates in a unit of angstrom
+    """
     global inputDict
     fp = open(os.path.join(inputDict, "sed_waves.bin"), "rb")
     nWaves = unpack('i', fp.read(sizeof(int)))[0]
@@ -89,6 +92,17 @@ def get_wavelength():
 
 
 def HST_filters(filterNames):
+    """
+    Quick access of transmission curves of HST filters
+
+    filterNames can be a list of filter names. (B435, V606, i775,
+    I814, z850, Y098, Y105, J125, H160, 3.6)
+    
+    Output is a 2-d list. Rows are different filters. First column
+    is the filter names. Second column is the transmission curve.
+
+    The output is to be passed to galaxy_mags(...)
+    """
     global filterList
     obsBands = []
     for name in filterNames:
@@ -97,6 +111,11 @@ def HST_filters(filterNames):
 
 
 def read_filters(restFrame, obsBands, z):
+    """
+    This function is to generate transmission curves that has the 
+    same wavelengths with SED templates. It is called by galaxy_mags(...). 
+    The input format refer to galaxy_mags(...). 
+    """
     waves = get_wavelength()
     nRest = len(restFrame)
     nObs = len(obsBands)
@@ -116,6 +135,17 @@ def read_filters(restFrame, obsBands, z):
 
 
 def read_meraxes(fname, int snapMax, h):
+    """
+    This function reads meraxes output. It is called by galaxy_mags(...).
+    Meraxes output is stored by firstProgenitor, nextProgenitor, galMetals
+    and galSFR. They are external variables of mag_calc_cext.c
+
+    fname: path of the meraxes output
+    snapMax: start snapshot
+    h: liitle h
+
+    Return: the smallest snapshot number that contains a galaxy
+    """
     timing_start("# Read meraxes output")
     cdef:
         int snapNum = snapMax+ 1
@@ -162,6 +192,9 @@ def read_meraxes(fname, int snapMax, h):
 
 
 cdef void free_meraxes(int snapMin, int snapMax):
+    """
+    Function to free firstProgenitor, nextProgenitor, galMetals and galSFR
+    """
     cdef int i
     # There is no indices in nextProgenitor[snapMax]
     for i in xrange(snapMin, snapMax):
@@ -179,6 +212,10 @@ cdef void free_meraxes(int snapMin, int snapMax):
     free(galSFR)
 
 def Lyman_absorption_Fan(double[:] obsWaves, double z):
+    """
+    Depreciate function. It is original to calculate the optical depth of
+    Fan et al. 2006 
+    """
     cdef:
         int i
         int nWaves = obsWaves.shape[0]
@@ -202,6 +239,15 @@ def Lyman_absorption_Fan(double[:] obsWaves, double z):
 DEF NLYMAN = 39 # Inoue calculated the absorption of 40th Lyman series
 
 def Lyman_absorption_Inoue(double[:] obsWaves, double z):
+    """
+    Function to calculate the optical depth of Inoue et al. 2014
+    It is called by galaxy_mags(...).
+
+    obsWaves: wavelength in unit of angstrom
+    z: redshift
+
+    Return: transmission (dimensionless)
+    """
     # Reference Inoue et al. 2014
     cdef:
         double LymanSeries[NLYMAN]
@@ -321,6 +367,9 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
 
 
 def get_output_name(prefix, snap, path):
+    """
+    Function to generate the name of the output
+    """
     fname = prefix + "%03d.hdf5"%snap
     # Avoid repeated name
     idx = 2
@@ -332,6 +381,9 @@ def get_output_name(prefix, snap, path):
 
 
 def get_age_list(fname, snap, nAgeList, h):
+    """
+    Function to generate an array of stellar ages. It is called by galaxy_mags(...).
+    """
     travelTime = meraxes.io.read_snaplist(fname, h)[2]*1e6 # Convert Myr to yr
     ageList = np.zeros(nAgeList)
     for i in xrange(nAgeList):
@@ -352,8 +404,26 @@ cdef extern from "mag_calc_cext.h":
                             double *filters, int nRest, int nObs,
                             double *absorption)
 
-"""
+
 def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
+    """
+    Main function to calculate galaxy spectra
+    
+    fname: path of meraxes output
+
+    snapList & idxList example:
+
+    snapList = [100, 78]
+    idxList = [[0, 1, 2], [100, 101]]
+    
+    The above means that the function will compute the spectra of galaxy 0, 1, 2
+    at snapshot 100, and galaxy 100, 101 at snapshot 78.
+
+    h: little h
+
+    Return: the function will store the output as a pandas hdf file. Spectra are in
+    unit of Jy. Wavelengths are in unit of angstrom.
+    """
     cdef:
         int i
         int snap, nSnap
@@ -414,12 +484,43 @@ def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
 
     if len(snapList) == 1:
         return spectra, waves
-"""
+
 
 
 def galaxy_mags(fname, snapList, idxList, h, Om0, 
                 restFrame = [[1600., 100.]], obsBands = [], 
                 path = "./"):
+    """
+    Main function to calculate galaxy magnitudes
+    
+    fname: path of meraxes output
+
+    snapList & idxList example:
+
+    snapList = [100, 78]
+    idxList = [[0, 1, 2], [100, 101]]
+    
+    The above means that the function will compute the magnitudes of galaxy 0, 1, 2
+    at snapshot 100, and galaxy 100, 101 at snapshot 78.
+
+    h: little h
+    Om0: matter content of the universe (necessary to calculate luminosity distance)
+
+    restFrame example:
+
+    restFrame = [[1500., 100], [1600., 50.], [1700., 150.]]
+    
+    The above means that the function will compute three kinds rest frame magnitudes
+    They are centred at 1500 angstrom with filter width 100 anstrom, 
+    centred at 1600 angstrom with filter width 50. angstrom, 
+    and centred at 1700 angstrom with filter width 150. angstrom
+
+    obsBands: observed frmae magnitudes to be calculated. It can be the output of 
+    HST_filters(...).
+
+    Return: the function will store the output as a pandas hdf file. All results are 
+    in the AB magnitude.
+    """
     cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
    
     cdef:
@@ -505,6 +606,16 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
 
 
 def dust_extinction(M1600, z):
+    """
+    Calculate the dust extinction at rest frame 1600 angstrom
+
+    M1600: rest frame 1600 angstrom magnitudes. It can be an array.
+    z: redshift
+
+    Returns: dust extinction at rest frame 1600 angstrom
+             M1600_obs = M1600 + A1600,
+             where M1600_obs is the dust attenuated magnitudes
+    """
     # Reference Mason et al. 2015, equation 4
     #           Bouwens 2014 et al. 2014, Table 3
     if isscalar(M1600):
@@ -533,6 +644,11 @@ def dust_extinction(M1600, z):
 
 @vectorize
 def reddening_curve(lam):
+    """
+    Function of the reddening curve of Calzetti et al. 2000
+    
+    lam: wavelengths in a unit of angstrom
+    """
     # Reference Calzetti et al. 2000, Liu et al. 2016
     lam *= 1e-4 # Convert angstrom to mircometer
     if lam < .12 or lam > 2.2:
@@ -548,6 +664,15 @@ def reddening_curve(lam):
 
 
 def reddening(waves, M1600, z):
+    """
+    Function to add reddening
+
+    waves: wavelength in a unit of angstrom
+    M1600: rest frame 1600 angstrom magnitudes.
+    z: redshift
+
+    Returns: the output can be directly added to intrinsic magnitudes
+    """
     # waves must be in a unit of angstrom
     # The reddening curve is normalised by the value at 1600 A
     A1600 = dust_extinction(M1600, z)
