@@ -404,8 +404,26 @@ cdef extern from "mag_calc_cext.h":
                             double *filters, int nRest, int nObs,
                             double *absorption)
 
-"""
+
 def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
+    """
+    Main function to calculate galaxy spectra
+    
+    fname: path of meraxes output
+
+    snapList & idxList example:
+
+    snapList = [100, 78]
+    idxList = [[0, 1, 2], [100, 101]]
+    
+    The above means that the function will compute the spectra of galaxy 0, 1, 2
+    at snapshot 100, and galaxy 100, 101 at snapshot 78.
+
+    h: little h
+
+    Return: the function will store the output as a pandas hdf file. Spectra are in
+    unit of Jy. Wavelengths are in unit of angstrom.
+    """
     cdef:
         int i
         int snap, nSnap
@@ -466,7 +484,7 @@ def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
 
     if len(snapList) == 1:
         return spectra, waves
-"""
+
 
 
 def galaxy_mags(fname, snapList, idxList, h, Om0, 
@@ -483,7 +501,10 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
     idxList = [[0, 1, 2], [100, 101]]
     
     The above means that the function will compute the magnitudes of galaxy 0, 1, 2
-    at snapshot 100, and galaxy 100, 101 at snapshot 78
+    at snapshot 100, and galaxy 100, 101 at snapshot 78.
+
+    h: little h
+    Om0: matter content of the universe (necessary to calculate luminosity distance)
 
     restFrame example:
 
@@ -495,10 +516,10 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
     and centred at 1700 angstrom with filter width 150. angstrom
 
     obsBands: observed frmae magnitudes to be calculated. It can be the output of 
-    HST_filters(...)
+    HST_filters(...).
 
     Return: the function will store the output as a pandas hdf file. All results are 
-    in AB magnitudes
+    in the AB magnitude.
     """
     cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
    
