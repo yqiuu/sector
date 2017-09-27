@@ -402,8 +402,9 @@ cdef extern from "mag_calc_cext.h":
                             int *indices, int nGal,
                             double *ageList, int nAgeList,
                             double *filters, int nRest, int nObs,
-                            double *absorption)
-
+                            double *absorption,
+                            int dust, 
+                            double tBC, double mu, double tauV, double nBC, double nISM);
 
 def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
     """
@@ -488,7 +489,8 @@ def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
 
 
 def galaxy_mags(fname, snapList, idxList, h, Om0, 
-                restFrame = [[1600., 100.]], obsBands = [], 
+                restFrame = [[1600., 100.]], obsBands = [],
+                dustParams = None,
                 path = "./"):
     """
     Main function to calculate galaxy magnitudes
@@ -558,6 +560,18 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
         float[:] mvOutput
         float[:] mvMags
 
+    cdef:
+        int dust = 0
+        double tBC = 0.
+        double mu = 0.
+        double tauV = 0.
+        double nBC = 0.
+        double nISM = 0.
+
+    if dustParams is not None:
+        dust = 1
+        tBC, mu, tauV, nBC, nISM = dustParams
+
     names = []
     for i in xrange(nRest):
         names.append("M%d"%restFrame[i][0])
@@ -579,7 +593,8 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
                                    indices, nGal,
                                    ageList, nAgeList,
                                    filters, nRest, nObs,
-                                   absorption)
+                                   absorption, 
+                                   dust, tBC, mu, tauV, nBC, nISM)
         mvOutput = <float[:nGal*(nRest + nObs)]>cOutput
         output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
         # Add distance modulus to apparent magnitudes
