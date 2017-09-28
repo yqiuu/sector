@@ -115,6 +115,9 @@ def read_filters(restFrame, obsBands, z):
     This function is to generate transmission curves that has the 
     same wavelengths with SED templates. It is called by galaxy_mags(...). 
     The input format refer to galaxy_mags(...). 
+
+    Before integration over the filters, the fluxes must be a function of wavelength.
+    After integration over the filters, the fluxex becomes a function of frequency.
     """
     waves = get_wavelength()
     nRest = len(restFrame)
@@ -126,11 +129,13 @@ def read_filters(restFrame, obsBands, z):
         lower = centre - bandWidth/2.
         upper = centre + bandWidth/2.
         filters[i] = np.interp(waves, [lower, upper], [1., 1.], left = 0., right = 0.)
-        filters[i] /= waves*np.log(upper/lower)
+        filters[i] /= np.trapz(filters[i]/waves, waves)
+        filters[i] *= 3.34e4*waves
     for i in xrange(nObs):
         fWaves, trans = obsBands[i][1]
         filters[nRest + i] = np.interp(obsWaves, fWaves, trans, left = 0., right = 0.)
-        filters[nRest + i] /= obsWaves*np.trapz(trans/fWaves, fWaves)
+        filters[nRest + i] /= np.trapz(filters[nRest + i]/waves, waves)
+        filters[nRest + i] *= 3.34e4*obsWaves
     return filters.flatten()
 
 
@@ -370,12 +375,12 @@ def get_output_name(prefix, snap, path):
     """
     Function to generate the name of the output
     """
-    fname = prefix + "%03d.hdf5"%snap
+    fname = prefix + "_%03d.hdf5"%snap
     # Avoid repeated name
     idx = 2
     fileList = os.listdir(path)
     while fname in fileList:
-        fname = prefix + "%03d_%d.hdf5"%(snap, idx)
+        fname = prefix + "_%03d_%d.hdf5"%(snap, idx)
         idx += 1
     return os.path.join(path, fname)
 
@@ -491,7 +496,7 @@ def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
 def galaxy_mags(fname, snapList, idxList, h, Om0, 
                 restFrame = [[1600., 100.]], obsBands = [],
                 dustParams = None,
-                path = "./"):
+                prefix = "mags", path = "./"):
     """
     Main function to calculate galaxy magnitudes
     
@@ -526,7 +531,7 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
     cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
    
     cdef:
-        int i
+        int i, iG
         int snap, nSnap
         int sanpMin, snapMax
 
@@ -555,7 +560,7 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
         double z
         double *filters 
         double *absorption
-        
+
         float *cOutput 
         float[:] mvOutput
         float[:] mvMags
@@ -597,11 +602,11 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
                                    dust, tBC, mu, tauV, nBC, nISM)
         mvOutput = <float[:nGal*(nRest + nObs)]>cOutput
         output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
-        # Add distance modulus to apparent magnitudes
-        output[:, nRest:] += cosmo.distmod(z).value
+        # convert apparent magnitudes to absolute magnitudes
+        output[:, nRest:] += cosmo.distmod(z)
 
         DataFrame(output, index = galIndices, columns = names).\
-        to_hdf(get_output_name("mags", snap, path), "w")
+        to_hdf(get_output_name(prefix, snap, path), "w")
 
         if len(snapList) == 1:
             mvMags = np.zeros(nGal*(nRest + nObs), dtype = 'f4')
