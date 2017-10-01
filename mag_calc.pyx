@@ -11,6 +11,7 @@ from numpy import isnan, isscalar, vectorize
 from pandas import DataFrame
 from scipy.interpolate import interp1d
 from astropy.cosmology import FlatLambdaCDM
+from astropy import units as u
 from dragons import meraxes
 
 # Global variables
@@ -397,106 +398,21 @@ def get_age_list(fname, snap, nAgeList, h):
 
 
 cdef extern from "mag_calc_cext.h":
-    float *galaxy_spectra_cext(double z, int tSnap, 
-                               int *indices, int nGal,
-                               double *ageList, int nAgeList,
-                               int nWaves)
+    float *composite_spectra_cext(double z, int tSnap,
+                                  int *indices, int nGal,
+                                  double *ageList, int nAgeList,
+                                  double *filters, int nRest, int nObs,
+                                  double *absorption,
+                                  int dust, double tBC, double mu, 
+                                  double tauV, double nBC, double nISM)
 
 
-    float *galaxy_mags_cext(double z, int tSnap,
-                            int *indices, int nGal,
-                            double *ageList, int nAgeList,
-                            double *filters, int nRest, int nObs,
-                            double *absorption,
-                            int dust, 
-                            double tBC, double mu, double tauV, double nBC, double nISM);
-
-def galaxy_spectra(fname, snapList, idxList, h, path = "./"):
-    """
-    Main function to calculate galaxy spectra
-    
-    fname: path of meraxes output
-
-    snapList & idxList example:
-
-    snapList = [100, 78]
-    idxList = [[0, 1, 2], [100, 101]]
-    
-    The above means that the function will compute the spectra of galaxy 0, 1, 2
-    at snapshot 100, and galaxy 100, 101 at snapshot 78.
-
-    h: little h
-
-    Return: the function will store the output as a pandas hdf file. Spectra are in
-    unit of Jy. Wavelengths are in unit of angstrom.
-    """
-    cdef:
-        int i
-        int snap, nSnap
-        int sanpMin, snapMax
-
-    if isscalar(snapList):
-        snapMax = snapList
-        nSnap = 1
-        snapList = [snapList]
-        idxList = [idxList]
-    else:
-        snapMax = max(snapList)
-        nSnap = len(snapList)
-
-    snapMin = read_meraxes(fname, snapMax, h)
-
-    waves = get_wavelength()
-    cdef:
-        int nWaves = len(waves)
-        int nGal
-        int *indices
-
-        int nAgeList
-        double *ageList
-
-        double z
-        
-        float *cOutput 
-        float[:] mvOutput
-        float[:] mvSpectra
-
-    for i in xrange(nSnap):
-        snap = snapList[i]
-        galIndices = idxList[i]
-        nGal = len(galIndices)
-        indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-        nAgeList = snap - snapMin + 1
-        ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
-        z = meraxes.io.grab_redshift(fname, snap)
-
-        cOutput = galaxy_spectra_cext(z, snap, indices, nGal, ageList, nAgeList, nWaves)
-        mvOutput = <float[:nGal*nWaves]>cOutput
-
-        DataFrame(np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1), 
-                  index = galIndices, columns = waves). \
-        to_hdf(get_output_name("spectra", snap, path), "w")
-
-        if len(snapList) == 1:
-            mvSpectra = np.zeros(nGal*nWaves, dtype = 'f4')
-            mvSpectra[...] = mvOutput
-            spectra = np.asarray(mvSpectra, dtype = 'f4').reshape(nGal, -1)
-
-        free(indices)       
-        free(ageList)
-        free(cOutput)
-
-    free_meraxes(snapMin, snapMax)
-
-    if len(snapList) == 1:
-        return spectra, waves
-
-
-
-def galaxy_mags(fname, snapList, idxList, h, Om0, 
-                restFrame = [[1600., 100.]], obsBands = [],
-                dustParams = None,
-                prefix = "mags", path = "./"):
+def composite_spectra(fname, snapList, idxList, h, Om0, 
+                      restFrame = [], obsBands = [],
+                      obsFrame = False,
+                      IGM = 'I2014',
+                      dustParams = None,
+                      prefix = "mags", path = "./"):
     """
     Main function to calculate galaxy magnitudes
     
@@ -554,12 +470,14 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
 
         int nAgeList
         double *ageList
+        
+        double z
 
         int nRest = len(restFrame)
         int nObs = len(obsBands)
-        double z
-        double *filters 
-        double *absorption
+        int nFilter = nRest + nObs
+        double *filters = NULL
+        double *absorption = NULL
 
         float *cOutput 
         float[:] mvOutput
@@ -577,12 +495,6 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
         dust = 1
         tBC, mu, tauV, nBC, nISM = dustParams
 
-    names = []
-    for i in xrange(nRest):
-        names.append("M%d"%restFrame[i][0])
-    for i in xrange(nObs):
-        names.append(obsBands[i][0])
-
     for i in xrange(nSnap):
         snap = snapList[i]
         galIndices = idxList[i]
@@ -591,25 +503,51 @@ def galaxy_mags(fname, snapList, idxList, h, Om0,
         nAgeList = snap - snapMin + 1
         ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
         z = meraxes.io.grab_redshift(fname, snap)
-        filters = init_1d_double(read_filters(restFrame, obsBands, z))
-        absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
 
-        cOutput = galaxy_mags_cext(z, snap,
-                                   indices, nGal,
-                                   ageList, nAgeList,
-                                   filters, nRest, nObs,
-                                   absorption, 
-                                   dust, tBC, mu, tauV, nBC, nISM)
-        mvOutput = <float[:nGal*(nRest + nObs)]>cOutput
+        if nFilter != 0:
+            filters = init_1d_double(read_filters(restFrame, obsBands, z))
+        else:
+            nFilter = nWaves
+            if obsFrame:
+                nObs = 1
+
+        if IGM == 'I2014':
+            absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
+
+        cOutput = composite_spectra_cext(z, snap,
+                                         indices, nGal,
+                                         ageList, nAgeList,
+                                         filters, nRest, nObs,
+                                         absorption, 
+                                         dust, tBC, mu, tauV, nBC, nISM)
+        mvOutput = <float[:nGal*nFilter]>cOutput
         output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
-        # convert apparent magnitudes to absolute magnitudes
-        output[:, nRest:] += cosmo.distmod(z)
 
+        if filters != NULL and nObs > 0:
+            # Convert apparent magnitudes to absolute magnitudes
+            output[:, nRest:] += cosmo.distmod(z)
+        
+        if filters == NULL and obsFrame:
+            # Convert to observed frame fluxes
+            factor = 10./cosmo.luminosity_distance(z).to(u.parsec).value
+            output *= factor*factor
+  
+        if filters != NULL:
+            names = []
+            for i in xrange(nRest):
+                names.append("M%d"%restFrame[i][0])
+            for i in xrange(nObs):
+                names.append(obsBands[i][0])
+        elif obsFrame:
+            names = (1. + z)*waves
+        else:
+            names = waves
+       
         DataFrame(output, index = galIndices, columns = names).\
         to_hdf(get_output_name(prefix, snap, path), "w")
-
+       
         if len(snapList) == 1:
-            mvMags = np.zeros(nGal*(nRest + nObs), dtype = 'f4')
+            mvMags = np.zeros(nGal*nFilter, dtype = 'f4')
             mvMags[...] = mvOutput
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 
