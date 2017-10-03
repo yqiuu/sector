@@ -140,6 +140,31 @@ def read_filters(restFrame, obsBands, z):
     return filters.flatten()
 
 
+def beta_filters():
+    """
+    return the filters defined by Calzetti et al. 1994, which is used to calculate
+    the UV continuum slope
+    """
+    windows = np.array([[1268., 1284.],
+                        [1309., 1316.],
+                        [1342., 1371.],
+                        [1407., 1515.],
+                        [1562., 1583.],
+                        [1677., 1740.],
+                        [1760., 1833.],
+                        [1866., 1890.],
+                        [1930., 1950.],
+                        [2400., 2580.]])
+    waves = get_wavelength()
+    nFilter = len(windows)
+    filters = np.zeros([nFilter, len(waves)])
+    for iF in xrange(nFilter):
+        filters[iF] = np.interp(waves, windows[iF], [1., 1.], left = 0., right = 0.)
+        filters[iF] /= np.trapz(filters[iF], waves)
+    centreWaves = windows.mean(axis = 1)
+    return centreWaves, filters.flatten()
+        
+
 def read_meraxes(fname, int snapMax, h):
     """
     This function reads meraxes output. It is called by galaxy_mags(...).
@@ -401,10 +426,17 @@ cdef extern from "mag_calc_cext.h":
     float *composite_spectra_cext(double z, int tSnap,
                                   int *indices, int nGal,
                                   double *ageList, int nAgeList,
-                                  double *filters, int nRest, int nObs,
+                                  double *filters, int nRest, int nObs, int mAB,
                                   double *absorption,
                                   int dust, double tBC, double mu, 
                                   double tauV, double nBC, double nISM)
+
+    float *UV_slope_cext(double z, int tSnap,
+                         int *indices, int nGal,
+                         double *ageList, int nAgeList,
+                         double *logWaves, double *filters, int nFilter,
+                         int dust, double tBC, double mu, 
+                         double tauV, double nBC, double nISM)
 
 
 def composite_spectra(fname, snapList, idxList, h, Om0, 
@@ -477,19 +509,20 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         int nObs = len(obsBands)
         int nFilter = nRest + nObs
         double *filters = NULL
+        int mAB
+
         double *absorption = NULL
 
-        float *cOutput 
-        float[:] mvOutput
-        float[:] mvMags
-
-    cdef:
         int dust = 0
         double tBC = 0.
         double mu = 0.
         double tauV = 0.
         double nBC = 0.
         double nISM = 0.
+
+        float *cOutput 
+        float[:] mvOutput
+        float[:] mvMags
 
     if dustParams is not None:
         dust = 1
@@ -506,10 +539,12 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
 
         if nFilter != 0:
             filters = init_1d_double(read_filters(restFrame, obsBands, z))
+            mAB = 1
         else:
             nFilter = nWaves
             if obsFrame:
                 nObs = 1
+            mAB = 0
 
         if IGM == 'I2014':
             absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
@@ -517,7 +552,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         cOutput = composite_spectra_cext(z, snap,
                                          indices, nGal,
                                          ageList, nAgeList,
-                                         filters, nRest, nObs,
+                                         filters, nRest, nObs, mAB,
                                          absorption, 
                                          dust, tBC, mu, tauV, nBC, nISM)
         mvOutput = <float[:nGal*nFilter]>cOutput
@@ -563,7 +598,101 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         return mags
 
 
-def dust_extinction(M1600, z):
+def UV_slope(fname, snapList, idxList, h,
+             dustParams = None,
+             prefix = "slope", path = "./"):
+
+    cdef:
+        int i, iG
+        int snap, nSnap
+        int sanpMin, snapMax
+
+    if isscalar(snapList):
+        snapMax = snapList
+        nSnap = 1
+        snapList = [snapList]
+        idxList = [idxList]
+    else:
+        snapMax = max(snapList)
+        nSnap = len(snapList)
+
+    snapMin = read_meraxes(fname, snapMax, h)
+
+    waves = get_wavelength()
+    centreWaves, betaFilters = beta_filters()
+    cdef:
+        int nWaves = len(waves)
+        int nGal
+        int *indices
+
+        int nAgeList
+        double *ageList
+        
+        double z
+
+        double *logWaves = init_1d_double(np.log(centreWaves))
+        double *filters = init_1d_double(betaFilters)
+        int nFilter = len(centreWaves)
+
+        int dust = 0
+        double tBC = 0.
+        double mu = 0.
+        double tauV = 0.
+        double nBC = 0.
+        double nISM = 0.
+
+        int nR = 3
+   
+        float *cOutput 
+        float[:] mvOutput
+        float[:] mvMags
+
+    if dustParams is not None:
+        dust = 1
+        tBC, mu, tauV, nBC, nISM = dustParams
+
+    for i in xrange(nSnap):
+        
+        snap = snapList[i]
+        galIndices = idxList[i]
+        nGal = len(galIndices)
+        indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+        nAgeList = snap - snapMin + 1
+        ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
+        z = meraxes.io.grab_redshift(fname, snap)
+
+        cOutput = UV_slope_cext(z, snap,
+                                indices, nGal,
+                                ageList, nAgeList,
+                                logWaves, filters, nFilter,
+                                dust, tBC, mu, tauV, nBC, nISM)
+        mvOutput = <float[:nGal*(nFilter + nR)]>cOutput
+        output = np.hstack([np.asarray(mvOutput[nGal*nFilter:], 
+                                       dtype = 'f4').reshape(nGal, -1),
+                            np.asarray(mvOutput[:nGal*nFilter], 
+                                       dtype = 'f4').reshape(nGal, -1)])
+        
+        DataFrame(output, index = galIndices, 
+                  columns = np.append(["beta", "norm", "R"], centreWaves)). \
+        to_hdf(get_output_name(prefix, snap, path), "w")
+        
+        if len(snapList) == 1:
+            mvMags = np.zeros(nGal*(nFilter + nR), dtype = 'f4')
+            mvMags[...] = mvOutput
+            mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
+
+        free(indices)       
+        free(ageList)
+        free(cOutput)
+       
+    free(filters)
+    free_meraxes(snapMin, snapMax)
+
+    if len(snapList) == 1:
+        return mags
+
+
+def dust_extinction(M1600, z, scatter):
     """
     Calculate the dust extinction at rest frame 1600 angstrom
 
@@ -593,10 +722,14 @@ def dust_extinction(M1600, z):
     beta[M1600 >= M0] = \
     (intercept(z) - c)*np.exp(slope(z)*(M1600[M1600 >= M0] - M0)/(intercept(z) - c)) + c
     beta[M1600 < M0] = slope(z)*(M1600[M1600 < M0] - M0) + intercept(z)
-    A1600 = 4.43 + .79*log(10)*sigma**2 + 1.99*beta
-    if A1600.min() < 0.:
-        warn("Redshift %.3f is beyond the range of the dust model"%z)
-        A1600[:] = 0.
+    if scatter > 0:
+        A1600 = 4.43 + 1.99*beta + np.random.normal(0., .34, len(M1600))
+        A1600[A1600 < 0.] = 0.
+    else:
+        A1600 = 4.43 + .79*log(10)*sigma**2 + 1.99*beta
+        if A1600.min() < 0.:
+            warn("Redshift %.3f is beyond the range of the dust model"%z)
+            A1600[:] = 0.
     return A1600
 
 
@@ -621,7 +754,7 @@ def reddening_curve(lam):
         return max(0., -.57136*lam + 1.62620)
 
 
-def reddening(waves, M1600, z):
+def reddening(waves, M1600, z, scatter = .34):
     """
     Function to add reddening
 
@@ -633,7 +766,7 @@ def reddening(waves, M1600, z):
     """
     # waves must be in a unit of angstrom
     # The reddening curve is normalised by the value at 1600 A
-    A1600 = dust_extinction(M1600, z)
+    A1600 = dust_extinction(M1600, z, scatter)
     if isscalar(waves):
         return reddening_curve(waves)/reddening_curve(1600.)*A1600
     else:

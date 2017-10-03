@@ -14,7 +14,7 @@
 #define SURFACE_AREA 1.1965e40 // 4*pi*(10 pc)**2 unit cm^2
 #define JANSKY(x) (3.34e4*(x)*(x))
 #define M_AB(x) (-2.5*log10(x) + 8.9) // Convert Jansky to AB magnitude
-#define TOL 1e-50 // Minimum Flux
+#define TOL 1e-30 // Minimum Flux
 
 clock_t sTime;
 // Meraxes output
@@ -183,6 +183,63 @@ inline double trapz_filter(double *filter, double *flux, double *waves, int nWav
         y0 = y1;
     }
     return I;
+}
+
+
+struct linResult {
+    double slope;
+    double intercept;
+    double R;
+};
+
+
+inline struct linResult linregress(double *x, double *y, int nPts) {
+    int i;
+   
+    double xSum = 0.;
+    for(i = 0; i < nPts; ++i)
+        xSum += x[i];
+
+    double ySum = 0.;
+    for(i = 0; i < nPts; ++i)
+        ySum += y[i];
+
+    double xxSum = 0.;
+    for(i = 0; i < nPts; ++i)
+        xxSum += x[i]*x[i];
+
+    double xySum = 0.;
+    for(i = 0; i < nPts; ++i)
+        xySum += x[i]*y[i];
+
+    double denominator = nPts*xxSum - xSum*xSum;
+    
+    double slope = (nPts*xySum - xSum*ySum)/denominator;
+    double intercept = (xxSum*ySum - xSum*xySum)/denominator;
+
+    double yReg;
+    double delta;
+    double ssRes = 0.;
+    for(i = 0; i < nPts; ++i) {
+        yReg = slope*x[i] + intercept;
+        delta = yReg - y[i];
+        ssRes += delta*delta;
+    }
+
+    double yMean = ySum/nPts;
+    double ssTot = 0.;
+    for(i = 0; i < nPts; ++i) {
+        delta = yMean - y[i];
+        ssTot += delta*delta;
+    }
+
+    double R = sqrt(1. - ssRes/ssTot);
+
+    struct linResult result;
+    result.slope = slope;
+    result.intercept = intercept;
+    result.R = R;
+    return result;
 }
 
 
@@ -631,7 +688,7 @@ inline void compute_spectrum(double *spectrum, int cSnap,
 float *composite_spectra_cext(double z, int tSnap,
                               int *indices, int nGal,
                               double *ageList, int nAgeList,
-                              double *filters, int nRest, int nObs,
+                              double *filters, int nRest, int nObs, int mAB,
                               double *absorption,
                               int dust, double tBC, double mu, 
                               double tauV, double nBC, double nISM) {
@@ -677,7 +734,7 @@ float *composite_spectra_cext(double z, int tSnap,
         
     }
     pOutput = output;
-    if (filters != NULL)
+    if (mAB)
         for(iFG = 0; iFG < nFilter*nGal; iFG++) {
             *pOutput = M_AB(*pOutput);
             ++pOutput;
@@ -685,9 +742,55 @@ float *composite_spectra_cext(double z, int tSnap,
 
     free(flux);
     free(fluxTmp);
+    free_template(&rawSpectra);
+    free_template(&spectra);
     timing_end();
     return output;
 }
 
 
+float *UV_slope_cext(double z, int tSnap,
+                     int *indices, int nGal,
+                     double *ageList, int nAgeList,
+                     double *logWaves, double *filters, int nFilter,
+                     int dust, double tBC, double mu, 
+                     double tauV, double nBC, double nISM) {
+    int iF, iG;
+    int nR = 3;
 
+    int nObs = 0;
+    int mAB = 0;
+    double *absorption = NULL;
+
+    float *pOutput1;
+    float *pOutput2;
+
+    struct linResult result;
+
+    float *output = composite_spectra_cext(z, tSnap, 
+                                           indices, nGal,
+                                           ageList, nAgeList,
+                                           filters, nFilter, nObs, mAB,
+                                           absorption,
+                                           dust, tBC, mu, 
+                                           tauV, nBC, nISM);
+    output = (float*)realloc(output, (nFilter + nR)*nGal*sizeof(float));
+    pOutput1 = output;
+    pOutput2 = output + nFilter*nGal;    
+
+    double *logf = malloc(nFilter*sizeof(double));
+
+    for(iG = 0; iG < nGal; ++iG) {
+        for(iF = 0; iF < nFilter; ++iF) 
+            logf[iF] = log(pOutput1[iF]);
+        pOutput1 += nFilter;
+
+        result = linregress(logWaves, logf, nFilter);
+        pOutput2[0] = (float)result.slope;
+        pOutput2[1] = (float)result.intercept;
+        pOutput2[2] = (float)result.R;
+        pOutput2 += nR;
+    }
+        
+    return output;
+}
