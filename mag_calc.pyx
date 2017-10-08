@@ -31,10 +31,10 @@ filterList = {"B435":os.path.join(inputDict, "HST_ACS_F435W.npy"),
 
  
 cdef extern from "mag_calc_cext.h":
-    int **firstProgenitor
-    int **nextProgenitor
-    float **galMetals
-    float **galSFR
+    int **g_firstProgenitor
+    int **g_nextProgenitor
+    float **g_metals
+    float **g_sfr
 #========================================================================================
 
 
@@ -168,8 +168,8 @@ def beta_filters():
 def read_meraxes(fname, int snapMax, h):
     """
     This function reads meraxes output. It is called by galaxy_mags(...).
-    Meraxes output is stored by firstProgenitor, nextProgenitor, galMetals
-    and galSFR. They are external variables of mag_calc_cext.c
+    Meraxes output is stored by g_firstProgenitor, g_nextProgenitor, g_metals
+    and g_sfr. They are external variables of mag_calc_cext.c
 
     fname: path of the meraxes output
     snapMax: start snapshot
@@ -184,14 +184,14 @@ def read_meraxes(fname, int snapMax, h):
         int snap, N
         int[:] intMemview1, intMemview2
         float[:] floatMemview1, floatMemview2
-    global firstProgenitor 
-    global nextProgenitor
-    global galMetals
-    global galSFR
-    firstProgenitor = <int**>malloc(snapNum*sizeof(int*))
-    nextProgenitor = <int**>malloc(snapMax*sizeof(int*))
-    galMetals = <float**>malloc(snapNum*sizeof(float*))
-    galSFR = <float**>malloc(snapNum*sizeof(float*))
+    global g_firstProgenitor 
+    global g_nextProgenitor
+    global g_metals
+    global g_sfr
+    g_firstProgenitor = <int**>malloc(snapNum*sizeof(int*))
+    g_nextProgenitor = <int**>malloc(snapMax*sizeof(int*))
+    g_metals = <float**>malloc(snapNum*sizeof(float*))
+    g_sfr = <float**>malloc(snapNum*sizeof(float*))
 
     meraxes.set_little_h(h = h)
     for snap in xrange(snapMax, -1, -1):
@@ -201,8 +201,8 @@ def read_meraxes(fname, int snapMax, h):
                                         ["StellarMass", "MetalsStellarMass", "Sfr"])
             metals = gals["MetalsStellarMass"]/gals["StellarMass"]
             metals[isnan(metals)] = 0.001
-            galMetals[snap] = init_1d_float(metals)
-            galSFR[snap] = init_1d_float(gals["Sfr"])
+            g_metals[snap] = init_1d_float(metals)
+            g_sfr[snap] = init_1d_float(gals["Sfr"])
             snapMin = snap
             gals = None
         except IndexError:
@@ -211,11 +211,11 @@ def read_meraxes(fname, int snapMax, h):
     print "# snapMin = %d"%snapMin
     for snap in xrange(snapMin, snapNum):
         # Copy first progenitor indices to the pointer
-        firstProgenitor[snap] = \
+        g_firstProgenitor[snap] = \
         init_1d_int(meraxes.io.read_firstprogenitor_indices(fname, snap))
         # Copy next progenitor indices to the pointer
         if snap < snapMax:
-            nextProgenitor[snap] = \
+            g_nextProgenitor[snap] = \
             init_1d_int(meraxes.io.read_nextprogenitor_indices(fname, snap))
 
     timing_end()    
@@ -224,23 +224,23 @@ def read_meraxes(fname, int snapMax, h):
 
 cdef void free_meraxes(int snapMin, int snapMax):
     """
-    Function to free firstProgenitor, nextProgenitor, galMetals and galSFR
+    Function to free g_firstProgenitor, g_nextProgenitor, g_metals and g_sfr
     """
     cdef int i
-    # There is no indices in nextProgenitor[snapMax]
+    # There is no indices in g_nextProgenitor[snapMax]
     for i in xrange(snapMin, snapMax):
-        free(nextProgenitor[i])
+        free(g_nextProgenitor[i])
 
     snapMax += 1
     for i in xrange(snapMin, snapMax):
-        free(firstProgenitor[i])
-        free(galMetals[i])
-        free(galSFR[i])
+        free(g_firstProgenitor[i])
+        free(g_metals[i])
+        free(g_sfr[i])
 
-    free(firstProgenitor)
-    free(nextProgenitor)
-    free(galMetals)
-    free(galSFR)
+    free(g_firstProgenitor)
+    free(g_nextProgenitor)
+    free(g_metals)
+    free(g_sfr)
 
 def Lyman_absorption_Fan(double[:] obsWaves, double z):
     """
@@ -423,6 +423,10 @@ def get_age_list(fname, snap, nAgeList, h):
 
 
 cdef extern from "mag_calc_cext.h":
+    void free_raw_spectra()
+
+    void free_int_spectra()
+
     float *composite_spectra_cext(double z, int tSnap,
                                   int *indices, int nGal,
                                   double *ageList, int nAgeList,
@@ -586,12 +590,14 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
             mvMags[...] = mvOutput
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 
+        free_int_spectra()
         free(indices)       
         free(ageList)
         free(filters)
         free(absorption)
         free(cOutput)
 
+    free_raw_spectra()
     free_meraxes(snapMin, snapMax)
 
     if len(snapList) == 1:
@@ -666,6 +672,7 @@ def UV_slope(fname, snapList, idxList, h,
                                 ageList, nAgeList,
                                 logWaves, filters, nFilter,
                                 dust, tBC, mu, tauV, nBC, nISM)
+
         mvOutput = <float[:nGal*(nFilter + nR)]>cOutput
         output = np.hstack([np.asarray(mvOutput[nGal*nFilter:], 
                                        dtype = 'f4').reshape(nGal, -1),
@@ -681,10 +688,12 @@ def UV_slope(fname, snapList, idxList, h,
             mvMags[...] = mvOutput
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 
+        free_int_spectra()
         free(indices)       
         free(ageList)
         free(cOutput)
        
+    free_raw_spectra()
     free(filters)
     free_meraxes(snapMin, snapMax)
 

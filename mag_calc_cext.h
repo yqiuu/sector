@@ -1,7 +1,13 @@
-int **firstProgenitor;
-int **nextProgenitor;
-float **galMetals;
-float **galSFR;
+int **g_firstProgenitor;
+int **g_nextProgenitor;
+float **g_metals;
+float **g_sfr;
+
+void free_raw_spectra(void);
+
+
+void free_int_spectra(void);
+
 
 float *composite_spectra_cext(double z, int tSnap,
                               int *indices, int nGal,
