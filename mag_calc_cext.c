@@ -235,13 +235,11 @@ inline struct linResult linregress(double *x, double *y, int nPts) {
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 // Meraxes output
-int **g_firstProgenitor = NULL;
-int **g_nextProgenitor = NULL;
-float **g_metals = NULL;
-float **g_sfr = NULL;
+//int **g_firstProgenitor = NULL;
+//int **g_nextProgenitor = NULL;
+//float **g_metals = NULL;
+//float **g_sfr = NULL;
 
-
-// Variable for galaxy merger tree
 struct props {
     short snap;
     short metals;
@@ -253,34 +251,48 @@ struct prop_set {
 };
 
 
-void trace_progenitors(int snap, int galIdx, struct props *nodes, int *pNProg) {
+struct trace_params {
+    int **firstProgenitor;
+    int **nextProgenitor;
+    float **metals;
+    float **sfr;
+    struct props *nodes;
+    int nNode;
+};
+
+
+void trace_progenitors(int snap, int galIdx, struct trace_params *args) {
     int metals;
     float sfr;
+    struct props *pNodes;
+    int nProg;
     if (galIdx >= 0) {
-        sfr = g_sfr[snap][galIdx];
+        sfr = args->sfr[snap][galIdx];
         if (sfr > 0.) {
-            *pNProg += 1;
-            if (*pNProg >= MAX_NODE) {
+            nProg = ++args->nNode;
+            if (nProg >= MAX_NODE) {
                 printf("Error: Number of progenitors exceeds MAX_NODE\n");
                 exit(0);
             }
-            metals = (short)(g_metals[snap][galIdx]*1000 - .5);
+            metals = (short)(args->metals[snap][galIdx]*1000 - .5);
             if (metals < MIN_Z)
                 metals = MIN_Z;
             else if (metals > MAX_Z)
                 metals = MAX_Z;
-            nodes[*pNProg].snap = snap;
-            nodes[*pNProg].metals = metals;
-            nodes[*pNProg].sfr = sfr;
+            pNodes = args->nodes + nProg;
+            pNodes->snap = snap;
+            pNodes->metals = metals;
+            pNodes->sfr = sfr;
             //printf("snap %d, metals %d, sfr %.3f\n", snap, metals, sfr);
         }
-        trace_progenitors(snap - 1, g_firstProgenitor[snap][galIdx], nodes, pNProg);
-        trace_progenitors(snap, g_nextProgenitor[snap][galIdx], nodes, pNProg);
+        trace_progenitors(snap - 1, args->firstProgenitor[snap][galIdx], args);
+        trace_progenitors(snap, args->nextProgenitor[snap][galIdx], args);
     }
 }
 
-
-struct prop_set *read_properties_by_progenitors(int tSnap, int *indices, int nGal) {
+struct prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
+                                                float **galMetals, float **galSFR,
+                                                int tSnap, int *indices, int nGal) {
     int iG;
 
     size_t memSize;
@@ -289,19 +301,26 @@ struct prop_set *read_properties_by_progenitors(int tSnap, int *indices, int nGa
     struct prop_set *galProps = malloc(nGal*sizeof(struct prop_set));
     struct prop_set *pGalProps;
     struct props nodes[MAX_NODE];
+    struct trace_params args;
+    args.firstProgenitor = firstProgenitor;
+    args.nextProgenitor = nextProgenitor;
+    args.metals = galMetals;
+    args.sfr = galSFR;
+    args.nodes = nodes;
+
     int galIdx;
     int nProg;
-    int metals;
+    short metals;
     float sfr;
 
     timing_start("# Read galaxies properties\n");
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
         galIdx = indices[iG];
         nProg = -1;
-        sfr = g_sfr[tSnap][galIdx];
+        sfr = galSFR[tSnap][galIdx];
         if (sfr > 0.) {
             ++nProg;
-            metals = (short)(g_metals[tSnap][galIdx]*1000 - .5);
+            metals = (short)(galMetals[tSnap][galIdx]*1000 - .5);
             if (metals < MIN_Z)
                 metals = MIN_Z;
             else if (metals > MAX_Z)
@@ -310,8 +329,9 @@ struct prop_set *read_properties_by_progenitors(int tSnap, int *indices, int nGa
             nodes[nProg].metals = metals;
             nodes[nProg].sfr = sfr;
         }
-        trace_progenitors(tSnap - 1, g_firstProgenitor[tSnap][galIdx], nodes, &nProg);
-        ++nProg;
+        args.nNode = nProg;
+        trace_progenitors(tSnap - 1, firstProgenitor[tSnap][galIdx], &args);
+        nProg = args.nNode + 1;
         pGalProps = galProps + iG;
         pGalProps->nNode = nProg;
         if (nProg == 0) {
@@ -688,8 +708,8 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
  * Primary Functions                                                           *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-float *composite_spectra_cext(double z, int tSnap, 
-                              int *indices, int nGal,
+float *composite_spectra_cext(struct prop_set *galProps, int nGal,
+                              double z, int tSnap, 
                               double *ageList, int nAgeList,
                               double *filters, int nRest, int nObs, int mAB,
                               double *absorption,
@@ -710,7 +730,6 @@ float *composite_spectra_cext(double z, int tSnap,
     float *output = malloc(nGal*nFilter*sizeof(float));
     float *pOutput = output;
 
-    struct prop_set *galProps = read_properties_by_progenitors(tSnap, indices, nGal);
     struct prop_set *pGalProps;
     struct props *pNodes;
     int nProg;
@@ -753,8 +772,8 @@ float *composite_spectra_cext(double z, int tSnap,
 }
 
 
-float *UV_slope_cext(double z, int tSnap, 
-                     int *indices, int nGal,
+float *UV_slope_cext(struct prop_set *galProps, int nGal,
+                     double z, int tSnap, 
                      double *ageList, int nAgeList,
                      double *logWaves, double *filters, int nFilter,
                      int dust, double tBC, double mu, 
@@ -771,8 +790,8 @@ float *UV_slope_cext(double z, int tSnap,
 
     struct linResult result;
 
-    float *output = composite_spectra_cext(z, tSnap,
-                                           indices, nGal,
+    float *output = composite_spectra_cext(galProps, nGal,
+                                           z, tSnap,
                                            ageList, nAgeList,
                                            filters, nFilter, nObs, mAB,
                                            absorption,

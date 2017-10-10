@@ -29,8 +29,7 @@ filterList = {"B435":os.path.join(inputDict, "HST_ACS_F435W.npy"),
               "H160":os.path.join(inputDict, "HST_IR_F160W.npy"), 
               "3.6":os.path.join(inputDict,  "HST_IRAC_3.6.npy")}
 
- 
-cdef extern from "mag_calc_cext.h":
+cdef:
     int **g_firstProgenitor
     int **g_nextProgenitor
     float **g_metals
@@ -242,6 +241,49 @@ cdef void free_meraxes(int snapMin, int snapMax):
     free(g_metals)
     free(g_sfr)
 
+cdef extern from "mag_calc_cext.h":
+    struct props:
+        short snap
+        short metals
+        float sfr
+
+    struct prop_set:
+        props *nodes
+        int nNode
+
+    prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
+                                             float **galMetals, float **galSFR,
+                                             int tSnap, int *indices, int nGal)
+
+
+def trace_star_formation_histroy(fname, snap, indices, h):
+    snapMin = read_meraxes(fname, snap, h)
+    cdef:
+        int iG
+        int nGal = len(indices)
+    cdef prop_set *galProps = \
+    read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, g_metals, g_sfr,
+                                   snap, init_1d_int(np.asarray(indices, dtype = 'i4')), 
+                                   nGal)
+    cdef:
+        int iN
+        int nNode
+        props *nodes
+        double[:, ::1] mvNodes
+    output = np.empty(nGal, dtype = object)
+    for iG in xrange(nGal):
+        nNode = galProps[iG].nNode
+        nodes = galProps[iG].nodes
+        mvNodes = np.zeros([nNode, 3])
+        for iN in xrange(nNode):
+            mvNodes[iN][0] = nodes[iN].snap
+            mvNodes[iN][1] = nodes[iN].metals
+            mvNodes[iN][2] = nodes[iN].sfr
+        output[iG] = np.asarray(mvNodes)
+    free_meraxes(snapMin, snap)
+    return output
+
+
 def Lyman_absorption_Fan(double[:] obsWaves, double z):
     """
     Depreciate function. It is original to calculate the optical depth of
@@ -427,16 +469,16 @@ cdef extern from "mag_calc_cext.h":
 
     void free_int_spectra()
 
-    float *composite_spectra_cext(double z, int tSnap,
-                                  int *indices, int nGal,
+    float *composite_spectra_cext(prop_set *galProps, int nGal,
+                                  double z, int tSnap,
                                   double *ageList, int nAgeList,
                                   double *filters, int nRest, int nObs, int mAB,
                                   double *absorption,
                                   int dust, double tBC, double mu, 
                                   double tauV, double nBC, double nISM)
 
-    float *UV_slope_cext(double z, int tSnap,
-                         int *indices, int nGal,
+    float *UV_slope_cext(prop_set *galProps, int nGal,
+                         double z, int tSnap,
                          double *ageList, int nAgeList,
                          double *logWaves, double *filters, int nFilter,
                          int dust, double tBC, double mu, 
@@ -504,6 +546,8 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         int nGal
         int *indices
 
+        prop_set *galProps
+
         int nAgeList
         double *ageList
         
@@ -553,8 +597,11 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         if IGM == 'I2014':
             absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
 
-        cOutput = composite_spectra_cext(z, snap,
-                                         indices, nGal,
+        galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
+                                                  g_metals, g_sfr,
+                                                  snap, indices, nGal)
+        cOutput = composite_spectra_cext(galProps, nGal,
+                                         z, snap,
                                          ageList, nAgeList,
                                          filters, nRest, nObs, mAB,
                                          absorption, 
@@ -631,6 +678,8 @@ def UV_slope(fname, snapList, idxList, h,
         int nGal
         int *indices
 
+        prop_set *galProps
+
         int nAgeList
         double *ageList
         
@@ -667,8 +716,11 @@ def UV_slope(fname, snapList, idxList, h,
         ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
         z = meraxes.io.grab_redshift(fname, snap)
 
-        cOutput = UV_slope_cext(z, snap,
-                                indices, nGal,
+        galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
+                                                  g_metals, g_sfr,
+                                                  snap, indices, nGal)
+        cOutput = UV_slope_cext(galProps, nGal,
+                                z, snap,
                                 ageList, nAgeList,
                                 logWaves, filters, nFilter,
                                 dust, tBC, mu, tauV, nBC, nISM)
