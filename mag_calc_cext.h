@@ -13,7 +13,6 @@ struct prop_set {
     int nNode;
 };
 
-
 struct prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
                                                 float **galMetals, float **galSFR,
                                                 int tSnap, int *indices, int nGal);

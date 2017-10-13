@@ -3,13 +3,14 @@ from warnings import warn
 from time import time
 from struct import unpack
 
+from cython import boundscheck, wraparound
 from libc.stdlib cimport malloc, free
 from libc.math cimport exp, log
 
 import numpy as np
 from numpy import isnan, isscalar, vectorize
 from pandas import DataFrame
-from scipy.interpolate import interp1d
+
 from astropy.cosmology import FlatLambdaCDM
 from astropy import units as u
 from dragons import meraxes
@@ -753,7 +754,34 @@ def UV_slope(fname, snapList, idxList, h,
         return mags
 
 
-def dust_extinction(M1600, z, scatter):
+
+from scipy.interpolate import interp1d
+from scipy.optimize import brentq
+
+DEF DUST_C = -2.33
+DEF DUST_M0 = -19.5
+DEF DUST_SIGMA = .34
+DEF DUST_BRIGHTER = -35.
+DEF DUST_FAINTER = 0.
+DEF DUST_BOUND = -5.
+
+cdef double beta_MUV(double obsMag, double slope, double inter):
+    if obsMag >= DUST_M0:
+        return (inter - DUST_C)*exp(slope*(obsMag - DUST_M0)/(inter - DUST_C)) \
+               + DUST_C
+    else:
+        return slope*(obsMag - DUST_M0) + inter
+
+
+cdef dust_equation(double obsMag, double slope, double inter,
+                   double insMag, double noise):
+    return obsMag - insMag \
+           - (4.43 + 1.99*(beta_MUV(obsMag, slope, inter) + noise))
+
+
+@boundscheck(False)
+@wraparound(False)
+def dust_extinction(M1600, double z, double scatter):
     """
     Calculate the dust extinction at rest frame 1600 angstrom
 
@@ -766,31 +794,49 @@ def dust_extinction(M1600, z, scatter):
     """
     # Reference Mason et al. 2015, equation 4
     #           Bouwens 2014 et al. 2014, Table 3
+
+    cdef:
+        int iM
+        int nM
     if isscalar(M1600):
-        M1600 = np.array([M1600])
+        nM = 1
+        M1600 = np.array([M1600], dtpye = 'f8')
     else:
-        M1600 = np.asarray(M1600)
-    c = -2.33
-    M0 = -19.5
-    sigma = .34
-    intercept = interp1d([2.5, 3.8, 5., 5.9, 7., 8.], 
-                         [-1.7, -1.85, -1.91, -2., -2.05, -2.13], 
-                         fill_value = 'extrapolate')      
-    slope = interp1d([2.5, 3.8, 5.0, 5.9, 7.0, 8.0], 
-                     [-.2, -.11, -.14, -.2, -.2, -.15], 
-                     fill_value = 'extrapolate')
-    beta = np.zeros(len(M1600))
-    beta[M1600 >= M0] = \
-    (intercept(z) - c)*np.exp(slope(z)*(M1600[M1600 >= M0] - M0)/(intercept(z) - c)) + c
-    beta[M1600 < M0] = slope(z)*(M1600[M1600 < M0] - M0) + intercept(z)
-    if scatter > 0:
-        A1600 = 4.43 + 1.99*beta + np.random.normal(0., .34, len(M1600))
-        A1600[A1600 < 0.] = 0.
+        nM = len(M1600)
+        M1600 = np.asarray(M1600, dtype = 'f8')
+    cdef:
+        double insMag
+        double[:] mvM1600 = M1600
+        double[:] mvA1600 = np.zeros(nM)
+        double[:] mvScatter
+        double slope = interp1d([2.5, 3.8, 5., 5.9, 7., 8.], 
+                                [-.2, -.11, -.14, -.2, -.2, -.15], 
+                                fill_value = 'extrapolate')(z)
+        double inter = interp1d([2.5, 3.8, 5., 5.9, 7., 8.], 
+                                [-1.7, -1.85, -1.91, -2., -2.05, -2.13], 
+                                fill_value = 'extrapolate')(z)
+
+    if scatter != 0.:
+        mvScatter = np.random.normal(0., scatter, nM)
+        for iM in xrange(nM):
+            insMag = mvM1600[iM]
+            if insMag < DUST_BOUND:
+                mvA1600[iM] = brentq(dust_equation, DUST_BRIGHTER, DUST_FAINTER, 
+                                     args = (slope, inter, mvM1600[iM], mvScatter[iM])) \
+                              - mvM1600[iM]
+            else:
+                mvA1600[iM] = 0.
     else:
-        A1600 = 4.43 + .79*log(10)*sigma**2 + 1.99*beta
-        if A1600.min() < 0.:
-            warn("Redshift %.3f is beyond the range of the dust model"%z)
-            A1600[:] = 0.
+        for iM in xrange(nM):
+            insMag = mvM1600[iM]
+            if insMag < DUST_BOUND:
+                mvA1600[iM] = brentq(dust_equation, DUST_BRIGHTER, DUST_FAINTER,
+                                     args = (slope, inter, mvM1600[iM], scatter)) \
+                              - mvM1600[iM]
+            else:
+                mvA1600[iM] = 0.
+    A1600 = np.asarray(mvA1600)
+    A1600[A1600 < 0.] = 0.
     return A1600
 
 
@@ -815,7 +861,7 @@ def reddening_curve(lam):
         return max(0., -.57136*lam + 1.62620)
 
 
-def reddening(waves, M1600, z, scatter = .34):
+def reddening(waves, M1600, z, scatter = 0.):
     """
     Function to add reddening
 
