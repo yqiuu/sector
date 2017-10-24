@@ -241,7 +241,7 @@ inline struct linResult linregress(double *x, double *y, int nPts) {
 //float **g_sfr = NULL;
 
 struct props {
-    short snap;
+    short index;
     short metals;
     float sfr;
 };
@@ -256,6 +256,7 @@ struct trace_params {
     int **nextProgenitor;
     float **metals;
     float **sfr;
+    int tSnap;
     struct props *nodes;
     int nNode;
 };
@@ -280,7 +281,7 @@ void trace_progenitors(int snap, int galIdx, struct trace_params *args) {
             else if (metals > MAX_Z)
                 metals = MAX_Z;
             pNodes = args->nodes + nProg;
-            pNodes->snap = snap;
+            pNodes->index = args->tSnap - snap;
             pNodes->metals = metals;
             pNodes->sfr = sfr;
             //printf("snap %d, metals %d, sfr %.3f\n", snap, metals, sfr);
@@ -306,6 +307,7 @@ struct prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nex
     args.nextProgenitor = nextProgenitor;
     args.metals = galMetals;
     args.sfr = galSFR;
+    args.tSnap = tSnap;
     args.nodes = nodes;
 
     int galIdx;
@@ -325,7 +327,7 @@ struct prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nex
                 metals = MIN_Z;
             else if (metals > MAX_Z)
                 metals = MAX_Z;
-            nodes[nProg].snap = tSnap;
+            nodes[nProg].index = 0;
             nodes[nProg].metals = metals;
             nodes[nProg].sfr = sfr;
         }
@@ -709,8 +711,7 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 float *composite_spectra_cext(struct prop_set *galProps, int nGal,
-                              double z, int tSnap, 
-                              double *ageList, int nAgeList,
+                              double z, double *ageList, int nAgeList,
                               double *filters, int nRest, int nObs, int mAB,
                               double *absorption,
                               int dust, double tBC, double mu, 
@@ -747,7 +748,7 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
         for(iP = 0; iP < nProg; ++iP) {
             pNodes = pGalProps->nodes + iP;
             sfr = pNodes->sfr;
-            pData = fluxTmp + (pNodes->metals*nAgeList + tSnap - pNodes->snap)*nFilter;
+            pData = fluxTmp + (pNodes->metals*nAgeList + pNodes->index)*nFilter;
             for(iF = 0 ; iF < nFilter; ++iF) {
                 flux[iF] += sfr*pData[iF];
             }
@@ -773,8 +774,7 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
 
 
 float *UV_slope_cext(struct prop_set *galProps, int nGal,
-                     double z, int tSnap, 
-                     double *ageList, int nAgeList,
+                     double z, double *ageList, int nAgeList,
                      double *logWaves, double *filters, int nFilter,
                      int dust, double tBC, double mu, 
                      double tauV, double nBC, double nISM) {
@@ -791,8 +791,7 @@ float *UV_slope_cext(struct prop_set *galProps, int nGal,
     struct linResult result;
 
     float *output = composite_spectra_cext(galProps, nGal,
-                                           z, tSnap,
-                                           ageList, nAgeList,
+                                           z, ageList, nAgeList,
                                            filters, nFilter, nObs, mAB,
                                            absorption,
                                            dust, tBC, mu, 

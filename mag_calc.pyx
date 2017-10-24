@@ -244,7 +244,7 @@ cdef void free_meraxes(int snapMin, int snapMax):
 
 cdef extern from "mag_calc_cext.h":
     struct props:
-        short snap
+        short index
         short metals
         float sfr
 
@@ -277,7 +277,7 @@ def trace_star_formation_histroy(fname, snap, indices, h):
         nodes = galProps[iG].nodes
         mvNodes = np.zeros([nNode, 3])
         for iN in xrange(nNode):
-            mvNodes[iN][0] = nodes[iN].snap
+            mvNodes[iN][0] = nodes[iN].index
             mvNodes[iN][1] = nodes[iN].metals
             mvNodes[iN][2] = nodes[iN].sfr
         output[iG] = np.asarray(mvNodes)
@@ -471,16 +471,14 @@ cdef extern from "mag_calc_cext.h":
     void free_int_spectra()
 
     float *composite_spectra_cext(prop_set *galProps, int nGal,
-                                  double z, int tSnap,
-                                  double *ageList, int nAgeList,
+                                  double z, double *ageList, int nAgeList,
                                   double *filters, int nRest, int nObs, int mAB,
                                   double *absorption,
                                   int dust, double tBC, double mu, 
                                   double tauV, double nBC, double nISM)
 
     float *UV_slope_cext(prop_set *galProps, int nGal,
-                         double z, int tSnap,
-                         double *ageList, int nAgeList,
+                         double z, double *ageList, int nAgeList,
                          double *logWaves, double *filters, int nFilter,
                          int dust, double tBC, double mu, 
                          double tauV, double nBC, double nISM)
@@ -602,8 +600,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
                                                   g_metals, g_sfr,
                                                   snap, indices, nGal)
         cOutput = composite_spectra_cext(galProps, nGal,
-                                         z, snap,
-                                         ageList, nAgeList,
+                                         z, ageList, nAgeList,
                                          filters, nRest, nObs, mAB,
                                          absorption, 
                                          dust, tBC, mu, tauV, nBC, nISM)
@@ -721,8 +718,7 @@ def UV_slope(fname, snapList, idxList, h,
                                                   g_metals, g_sfr,
                                                   snap, indices, nGal)
         cOutput = UV_slope_cext(galProps, nGal,
-                                z, snap,
-                                ageList, nAgeList,
+                                z, ageList, nAgeList,
                                 logWaves, filters, nFilter,
                                 dust, tBC, mu, tauV, nBC, nISM)
 
