@@ -48,10 +48,18 @@ inline void report(int i, int tot) {
 
 double **malloc_2d_double(int nRow, int nCol) {
     int i;
-    double **target;
-    target = (double**)malloc(nRow*sizeof(double*));
+    double **target = malloc(nRow*sizeof(double*));
     for(i = 0; i < nRow; ++i) 
         target[i] = (double*)malloc(nCol*sizeof(double));
+    return target;
+}
+
+
+double **memcpy_2d_double(double **source, int nRow, int nCol) {
+    int i;
+    double **target = malloc_2d_double(nRow, nCol);
+    for(i = 0; i < nRow; ++i) 
+        memcpy(target[i], source[i], nCol*sizeof(double));
     return target;
 }
 
@@ -488,7 +496,7 @@ void templates_time_integration(double *ageList, int nAgeList) {
     double **intData;
     
     if(g_intSpectra == NULL) {
-        timing_start("# Process SED templates\n");
+        timing_start("# Integrate SED templates over time\n");
         nAge = g_rawSpectra->nAge;
         age = g_rawSpectra->age;
         nWaves = g_rawSpectra->nWaves; 
@@ -496,8 +504,6 @@ void templates_time_integration(double *ageList, int nAgeList) {
         nZ = g_rawSpectra->nZ;
         data = g_rawSpectra->data;
         intData = malloc_2d_double(nZ*nAgeList, nWaves);
-        // Integrate raw SED templates over time
-        printf("# Integrate SED templates over time\n");
         for(iZ = 0; iZ < nZ; report(iZ++, nZ)) 
             for(iA = 0; iA < nAgeList; ++iA) {
                 pData = intData[iZ*nAgeList + iA];
@@ -514,11 +520,27 @@ void templates_time_integration(double *ageList, int nAgeList) {
                 }
             }
         g_intSpectra = init_template(ageList, nAgeList, waves, nWaves, intData, nZ);
+        timing_end();
     }
+
 }
  
 
-void dust_absorption(double tBC, double mu, double tauV, double nBC, double nISM) {
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *                                                                             *
+ * Functions of the dust model                                                 *
+ *                                                                             *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+struct dust_params {
+    double tauV_ISM;
+    double nISM;
+    double tauV_BC;
+    double nBC;
+    double tBC;
+};
+
+
+inline double **dust_absorption(struct dust_params *dustArgs) {
     /* tBC: life time of the birth clound
      * nu: fraction of ISM dust absorption
      * tauV: V-band absorption optical depth
@@ -529,23 +551,28 @@ void dust_absorption(double tBC, double mu, double tauV, double nBC, double nISM
      */
     int iA, iW, iZ, iAZ;
     double *pData;
+
     int nAge = g_intSpectra->nAge;
     double *age = g_intSpectra->age;
     int nWaves = g_intSpectra->nWaves;
     double *waves = g_intSpectra->waves;
     int nZ = g_intSpectra->nZ;
-    double **data = g_intSpectra->data;
+    double **data = memcpy_2d_double(g_intSpectra->data, nZ*nAge, nWaves);
 
     int nRawAge = g_rawSpectra->nAge;
     double *rawAge = g_rawSpectra->age;
     double **rawData = g_rawSpectra->data;
 
-    double t0, t1;
-
-    double ratio;
     int iAgeBC;
-    double tauV_BC = (1 - mu)*tauV;
-    double tauV_ISM = mu*tauV;
+    double t0, t1;
+    double ratio;
+
+    double tauV_ISM = dustArgs->tauV_ISM;
+    double nISM = dustArgs->nISM;
+    double tauV_BC = dustArgs->tauV_BC;
+    double nBC = dustArgs->nBC;
+    double tBC = dustArgs->tBC;
+
     double *tauISM = malloc(nWaves*sizeof(double));
     double *tauBC = malloc(nWaves*sizeof(double));
 
@@ -594,11 +621,12 @@ void dust_absorption(double tBC, double mu, double tauV, double nBC, double nISM
         for(iW = 0; iW < nWaves; ++iW) 
             pData[iW] *= exp(-tauISM[iW]);
     }
-
+    return data;
 }
 
 
-double *templates_working(double z, double *filters, int nRest, int nObs, double *absorption) {
+inline double *templates_working(double z, double *filters, int nRest, int nObs, 
+                                 double *LyAbsorption, struct dust_params *dustArgs) {
     int iA, iW, iZ, iAZ, iF;
     double *pData;
 
@@ -606,11 +634,18 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
     int nWaves = g_intSpectra->nWaves;
     double *waves = g_intSpectra->waves;
     int nZ = g_intSpectra->nZ;
-    double **data = g_intSpectra->data;
+    double **data;
+
+    //timing_start("# Process working SED templates\n");
+    if (dustArgs != NULL)
+        data = dust_absorption(dustArgs);
+    else
+        data = g_intSpectra->data;
 
     double *obsWaves = NULL;
     double **obsData = NULL;
     double *pObsData;
+
     if (nObs > 0) {
         // Transform everything to observer frame
         // Note the fluxes in this case is a function of wavelength
@@ -625,12 +660,12 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
             for(iW = 0; iW < nWaves; ++iW)
                 pObsData[iW] = pData[iW]/(1. + z);           
         }
-        if (absorption != NULL)
+        if (LyAbsorption != NULL)
             // Add IGM absorption
              for(iAZ = 0; iAZ < nZ*nAge; ++iAZ) {
                 pObsData = obsData[iAZ];
                 for(iW = 0; iW < nWaves; ++iW)
-                    pObsData[iW] *= absorption[iW];
+                    pObsData[iW] *= LyAbsorption[iW];
                 }       
     }
 
@@ -650,7 +685,7 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
     if (filters != NULL) {
         // Intgrate SED templates over filters
         // Compute fluxes in rest frame filters
-        printf("# Compute fluxes in rest frame filters\n");
+        //printf("# Compute fluxes in rest frame filters\n");
         for(iF = 0; iF < nRest; ++iF) {
             pFilter = filters + iF*nWaves;
             for(iA = 0; iA < nAge; ++iA) {
@@ -659,7 +694,7 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
                     pData[iZ] = trapz_filter(pFilter, data[iZ*nAge + iA], waves, nWaves);
             }
         }
-        printf("# Compute fluxes in observer frame filters\n");
+        //printf("# Compute fluxes in observer frame filters\n");
         for(iF = nRest; iF < nFilter; ++iF) {
             pFilter = filters + iF*nWaves;
             for(iA = 0; iA < nAge; ++iA) {
@@ -689,9 +724,8 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
         }
     }
 
-    
     // Interploate SED templates along metallicities
-    printf("# Interpolate SED templates along metallicities\n");
+    //printf("# Interpolate SED templates along metallicities\n");
     fluxTmp = (double*)malloc(NUM_Z*nAge*nFilter*sizeof(double));
     pData = fluxTmp;
     for(iZ = 0; iZ < NUM_Z; ++iZ)
@@ -699,8 +733,10 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
             for(iF = 0; iF < nFilter; ++iF) 
                 *pData++ = interp((double)iZ, refMetals, refSpectra[iF*nAge+ iA], nZ);
 
+    if (dustArgs != NULL)
+        free_2d_double(data, nZ*nAge);
     free_2d_double(refSpectra, nFilter*nAge); 
-    timing_end();
+    //timing_end();
     return fluxTmp;   
 }
 
@@ -713,18 +749,11 @@ double *templates_working(double z, double *filters, int nRest, int nObs, double
 float *composite_spectra_cext(struct prop_set *galProps, int nGal,
                               double z, double *ageList, int nAgeList,
                               double *filters, int nRest, int nObs, int mAB,
-                              double *absorption,
-                              int dust, double tBC, double mu, 
-                              double tauV, double nBC, double nISM) {
+                              double *absorption, struct dust_params *dustArgs) {
     int iF, iG, iP, iFG;
     double *pData;
-    
-    //Generate templates
-    read_templates();
-    templates_time_integration(ageList, nAgeList);
-    if (dust)
-        dust_absorption(tBC, mu, tauV, nBC, nISM);
-    double *fluxTmp = templates_working(z, filters, nRest, nObs, absorption);
+
+    double *fluxTmp;
 
     int nFilter = filters == NULL ? g_intSpectra->nWaves : nObs + nRest;
     double *flux = malloc(nFilter*sizeof(double));
@@ -735,16 +764,22 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
     struct props *pNodes;
     int nProg;
     double sfr;
-    
+     
+    //Generate templates
+    read_templates();
+    templates_time_integration(ageList, nAgeList);   
+
     timing_start("# Compute magnitudes\n");
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
-        pGalProps = galProps + iG;
-        nProg = pGalProps->nNode;
         //printf("nProg = %d, iG = %d nGal = %d\n", nProg, iG, nGal);
         // Initialise fluxes
         for(iF = 0; iF < nFilter; ++iF)
             flux[iF] = TOL;
         // Sum contributions from all progentiors
+        pGalProps = galProps + iG;
+        nProg = pGalProps->nNode;
+        fluxTmp = templates_working(z, filters, nRest, nObs, absorption, 
+                                    dustArgs + iG);
         for(iP = 0; iP < nProg; ++iP) {
             pNodes = pGalProps->nodes + iP;
             sfr = pNodes->sfr;
@@ -753,6 +788,7 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
                 flux[iF] += sfr*pData[iF];
             }
         }
+        free(fluxTmp);
         // Store output
         for(iF = 0; iF < nFilter; ++iF) 
             *pOutput++ = (float)flux[iF];
@@ -765,7 +801,6 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
             ++pOutput;
         }
     free(flux);
-    free(fluxTmp);
 
     printf("\n");
     timing_end();
@@ -776,43 +811,48 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
 float *UV_slope_cext(struct prop_set *galProps, int nGal,
                      double z, double *ageList, int nAgeList,
                      double *logWaves, double *filters, int nFilter,
-                     int dust, double tBC, double mu, 
-                     double tauV, double nBC, double nISM) {
+                     struct dust_params *dustArgs) {
     int iF, iG;
     int nR = 3;
+    int nFit = nFilter - 1;
 
     int nObs = 0;
     int mAB = 0;
     double *absorption = NULL;
 
-    float *pOutput1;
-    float *pOutput2;
-
     struct linResult result;
 
     float *output = composite_spectra_cext(galProps, nGal,
-                                           z, ageList, nAgeList,
-                                           filters, nFilter, nObs, mAB,
-                                           absorption,
-                                           dust, tBC, mu, 
-                                           tauV, nBC, nISM);
-    output = (float*)realloc(output, (nFilter + nR)*nGal*sizeof(float));
-    pOutput1 = output;
-    pOutput2 = output + nFilter*nGal;    
+                                            z, ageList, nAgeList,
+                                            filters, nFilter, nObs, mAB,
+                                            absorption, dustArgs);
+    float *pFit;                                         
+    float *pOutput;
 
-    double *logf = malloc(nFilter*sizeof(double));
+    output = (float*)realloc(output, (nFilter + nR)*nGal*sizeof(float));
+    pFit = output;
+    pOutput = output + nFilter*nGal;    
+
+    double *logf = malloc(nFit*sizeof(double));
 
     for(iG = 0; iG < nGal; ++iG) {
-        for(iF = 0; iF < nFilter; ++iF) 
-            logf[iF] = log(pOutput1[iF]);
-        pOutput1 += nFilter;
+        for(iF = 0; iF < nFit; ++iF) 
+            logf[iF] = log(pFit[iF]);
+        pFit += nFilter;
 
-        result = linregress(logWaves, logf, nFilter);
-        pOutput2[0] = (float)result.slope;
-        pOutput2[1] = (float)result.intercept;
-        pOutput2[2] = (float)result.R;
-        pOutput2 += nR;
+        result = linregress(logWaves, logf, nFit);
+        pOutput[0] = (float)result.slope;
+        pOutput[1] = (float)result.intercept;
+        pOutput[2] = (float)result.R;
+        pOutput += nR;
     }
         
+    // Convert to AB magnitude
+    pOutput = output + nFit;
+    for(iG = 0; iG < nGal; ++iG) {
+        *pOutput = M_AB(*pOutput);
+        pOutput += nFilter;
+    }
+    
     return output;
 }

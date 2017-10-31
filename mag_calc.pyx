@@ -157,11 +157,12 @@ def beta_filters():
                         [2400., 2580.]])
     waves = get_wavelength()
     nFilter = len(windows)
-    filters = np.zeros([nFilter, len(waves)])
+    filters = np.zeros([nFilter + 1, len(waves)])
     for iF in xrange(nFilter):
         filters[iF] = np.interp(waves, windows[iF], [1., 1.], left = 0., right = 0.)
         filters[iF] /= np.trapz(filters[iF], waves)
-    centreWaves = windows.mean(axis = 1)
+    filters[-1] = read_filters([[1600., 100.]], [], 0.)
+    centreWaves = np.append(windows.mean(axis = 1), 1600.)
     return centreWaves, filters.flatten()
         
 
@@ -470,18 +471,46 @@ cdef extern from "mag_calc_cext.h":
 
     void free_int_spectra()
 
+    struct dust_params:
+        double tauV_ISM
+        double nISM
+        double tauV_BC
+        double nBC
+        double tBC
+
     float *composite_spectra_cext(prop_set *galProps, int nGal,
                                   double z, double *ageList, int nAgeList,
                                   double *filters, int nRest, int nObs, int mAB,
-                                  double *absorption,
-                                  int dust, double tBC, double mu, 
-                                  double tauV, double nBC, double nISM)
+                                  double *absorption, dust_params *dustArgs)
 
     float *UV_slope_cext(prop_set *galProps, int nGal,
                          double z, double *ageList, int nAgeList,
                          double *logWaves, double *filters, int nFilter,
-                         int dust, double tBC, double mu, 
-                         double tauV, double nBC, double nISM)
+                         dust_params *dustArgs)
+
+
+cdef dust_params *dust_parameters(double[:] metalMass, double[:] sfr, double[:] radius, 
+                                  double c1, double nISM, double c2, double nBC,
+                                  double tBC, int nGal):
+    cdef:
+        int iG
+        double rRatio
+        double rRatio2
+        dust_params *dustArgs = <dust_params*>malloc(nGal*sizeof(dust_params))
+        dust_params *pDustArgs 
+
+    for iG in xrange(nGal):
+        rRatio = radius[iG]/1e-4
+        rRatio2 = rRatio*rRatio
+        pDustArgs = dustArgs + iG
+        pDustArgs.tauV_ISM = c1*(metalMass[iG]/1e-4)/rRatio2
+        pDustArgs.nISM = nISM
+        pDustArgs.tauV_BC = c2*(sfr[iG]/100)/rRatio2
+        pDustArgs.nBC = nBC
+        pDustArgs.tBC = tBC
+
+    return dustArgs
+    
 
 
 def composite_spectra(fname, snapList, idxList, h, Om0, 
@@ -560,20 +589,11 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
 
         double *absorption = NULL
 
-        int dust = 0
-        double tBC = 0.
-        double mu = 0.
-        double tauV = 0.
-        double nBC = 0.
-        double nISM = 0.
+        dust_params *dustArgs = NULL
 
         float *cOutput 
         float[:] mvOutput
         float[:] mvMags
-
-    if dustParams is not None:
-        dust = 1
-        tBC, mu, tauV, nBC, nISM = dustParams
 
     for i in xrange(nSnap):
         snap = snapList[i]
@@ -584,6 +604,10 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
         z = meraxes.io.grab_redshift(fname, snap)
 
+        if dustParams is not None:
+            dustArgs = dust_parameters(dustParams[0][i], dustParams[1][i], dustParams[2][i],
+                                       dustParams[3], dustParams[4], dustParams[5], 
+                                       dustParams[6], dustParams[7], nGal)
         if nFilter != 0:
             filters = init_1d_double(read_filters(restFrame, obsBands, z))
             mAB = 1
@@ -602,8 +626,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         cOutput = composite_spectra_cext(galProps, nGal,
                                          z, ageList, nAgeList,
                                          filters, nRest, nObs, mAB,
-                                         absorption, 
-                                         dust, tBC, mu, tauV, nBC, nISM)
+                                         absorption, dustArgs)
         mvOutput = <float[:nGal*nFilter]>cOutput
         output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
 
@@ -638,6 +661,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         free_int_spectra()
         free(indices)       
         free(ageList)
+        free(dustArgs)
         free(filters)
         free(absorption)
         free(cOutput)
@@ -687,22 +711,13 @@ def UV_slope(fname, snapList, idxList, h,
         double *filters = init_1d_double(betaFilters)
         int nFilter = len(centreWaves)
 
-        int dust = 0
-        double tBC = 0.
-        double mu = 0.
-        double tauV = 0.
-        double nBC = 0.
-        double nISM = 0.
+        dust_params *dustArgs = NULL
 
         int nR = 3
    
         float *cOutput 
         float[:] mvOutput
         float[:] mvMags
-
-    if dustParams is not None:
-        dust = 1
-        tBC, mu, tauV, nBC, nISM = dustParams
 
     for i in xrange(nSnap):
         
@@ -714,13 +729,18 @@ def UV_slope(fname, snapList, idxList, h,
         ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
         z = meraxes.io.grab_redshift(fname, snap)
 
+        if dustParams is not None:
+            dustArgs = dust_parameters(dustParams[0][i], dustParams[1][i], dustParams[2][i],
+                                       dustParams[3], dustParams[4], dustParams[5], 
+                                       dustParams[6], dustParams[7], nGal)
+
         galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
                                                   g_metals, g_sfr,
                                                   snap, indices, nGal)
         cOutput = UV_slope_cext(galProps, nGal,
                                 z, ageList, nAgeList,
                                 logWaves, filters, nFilter,
-                                dust, tBC, mu, tauV, nBC, nISM)
+                                dustArgs)
 
         mvOutput = <float[:nGal*(nFilter + nR)]>cOutput
         output = np.hstack([np.asarray(mvOutput[nGal*nFilter:], 
@@ -728,8 +748,9 @@ def UV_slope(fname, snapList, idxList, h,
                             np.asarray(mvOutput[:nGal*nFilter], 
                                        dtype = 'f4').reshape(nGal, -1)])
         
-        DataFrame(output, index = galIndices, 
-                  columns = np.append(["beta", "norm", "R"], centreWaves)). \
+        columns = np.append(["beta", "norm", "R"], centreWaves)
+        columns[-1] = "M1600"
+        DataFrame(output, index = galIndices, columns = columns). \
         to_hdf(get_output_name(prefix, snap, path), "w")
         
         if len(snapList) == 1:
@@ -738,6 +759,7 @@ def UV_slope(fname, snapList, idxList, h,
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 
         free_int_spectra()
+        free(dustArgs)
         free(indices)       
         free(ageList)
         free(cOutput)
@@ -748,7 +770,6 @@ def UV_slope(fname, snapList, idxList, h,
 
     if len(snapList) == 1:
         return mags
-
 
 
 from scipy.interpolate import interp1d
