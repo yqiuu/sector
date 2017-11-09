@@ -472,9 +472,9 @@ cdef extern from "mag_calc_cext.h":
     void free_int_spectra()
 
     struct dust_params:
-        double tauV_ISM
+        double tauUV_ISM
         double nISM
-        double tauV_BC
+        double tauUV_BC
         double nBC
         double tBC
 
@@ -503,9 +503,9 @@ cdef dust_params *dust_parameters(double[:] metalMass, double[:] sfr, double[:] 
         rRatio = radius[iG]/1e-4
         rRatio2 = rRatio*rRatio
         pDustArgs = dustArgs + iG
-        pDustArgs.tauV_ISM = c1*(metalMass[iG]/1e-4)/rRatio2
+        pDustArgs.tauUV_ISM = c1*(metalMass[iG]/1e-4)/rRatio2
         pDustArgs.nISM = nISM
-        pDustArgs.tauV_BC = c2*(sfr[iG]/100)/rRatio2
+        pDustArgs.tauUV_BC = c2*(sfr[iG]/100)/rRatio2
         pDustArgs.nBC = nBC
         pDustArgs.tBC = tBC
 

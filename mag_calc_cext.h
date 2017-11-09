@@ -25,9 +25,9 @@ void free_int_spectra(void);
 
 
 struct dust_params {
-    double tauV_ISM;
+    double tauUV_ISM;
     double nISM;
-    double tauV_BC;
+    double tauUV_BC;
     double nBC;
     double tBC;
 };

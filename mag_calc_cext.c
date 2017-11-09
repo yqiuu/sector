@@ -532,9 +532,9 @@ void templates_time_integration(double *ageList, int nAgeList) {
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 struct dust_params {
-    double tauV_ISM;
+    double tauUV_ISM;
     double nISM;
-    double tauV_BC;
+    double tauUV_BC;
     double nBC;
     double tBC;
 };
@@ -543,7 +543,7 @@ struct dust_params {
 inline double **dust_absorption(struct dust_params *dustArgs) {
     /* tBC: life time of the birth clound
      * nu: fraction of ISM dust absorption
-     * tauV: V-band absorption optical depth
+     * tauUV: V-band absorption optical depth
      * nBC: power law index of tauBC
      * nISM: power law index of tauISM
      * 
@@ -567,9 +567,9 @@ inline double **dust_absorption(struct dust_params *dustArgs) {
     double t0, t1;
     double ratio;
 
-    double tauV_ISM = dustArgs->tauV_ISM;
+    double tauUV_ISM = dustArgs->tauUV_ISM;
     double nISM = dustArgs->nISM;
-    double tauV_BC = dustArgs->tauV_BC;
+    double tauUV_BC = dustArgs->tauUV_BC;
     double nBC = dustArgs->nBC;
     double tBC = dustArgs->tBC;
 
@@ -578,9 +578,9 @@ inline double **dust_absorption(struct dust_params *dustArgs) {
 
     // Compute the optical depth of both the birth cloud and the ISM
     for(iW = 0; iW < nWaves; ++iW) {
-        ratio = waves[iW]/5500.;
-        tauISM[iW] = tauV_ISM*pow(ratio, nISM);
-        tauBC[iW] = tauV_BC*pow(ratio, nBC);
+        ratio = waves[iW]/1600.;
+        tauISM[iW] = tauUV_ISM*pow(ratio, nISM);
+        tauBC[iW] = tauUV_BC*pow(ratio, nBC);
     }   
 
     // Birth cloud part 
