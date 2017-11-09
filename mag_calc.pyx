@@ -1,7 +1,7 @@
 import os
 from warnings import warn
 from time import time
-from struct import unpack
+from struct import pack, unpack
 
 from cython import boundscheck, wraparound
 from libc.stdlib cimport malloc, free
@@ -166,6 +166,20 @@ def beta_filters():
     return centreWaves, filters.flatten()
         
 
+def get_output_name(prefix, postfix, snap, path):
+    """
+    Function to generate the name of the output
+    """
+    fname = prefix + "_%03d"%snap + postfix
+    # Avoid repeated name
+    idx = 2
+    fileList = os.listdir(path)
+    while fname in fileList:
+        fname = prefix + "_%03d_%d"%(snap, idx) + postfix
+        idx += 1
+    return os.path.join(path, fname)
+
+
 def read_meraxes(fname, int snapMax, h):
     """
     This function reads meraxes output. It is called by galaxy_mags(...).
@@ -258,15 +272,20 @@ cdef extern from "mag_calc_cext.h":
                                              int tSnap, int *indices, int nGal)
 
 
-def trace_star_formation_histroy(fname, snap, indices, h):
-    snapMin = read_meraxes(fname, snap, h)
+def trace_star_formation_history(fname, snap, galIndices, h):
+    # Read galaxy properties from Meraxes outputs
+    cdef int snapMin = read_meraxes(fname, snap, h)
+    # Trace galaxy merge trees
     cdef:
         int iG
-        int nGal = len(indices)
-    cdef prop_set *galProps = \
-    read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, g_metals, g_sfr,
-                                   snap, init_1d_int(np.asarray(indices, dtype = 'i4')), 
-                                   nGal)
+        int nGal = len(galIndices)
+        int *indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+        prop_set *galProps = \
+        read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, g_metals, g_sfr,
+                                       snap, indices, nGal)
+    free(indices)
+    free_meraxes(snapMin, snap)
+    # Convert output to numpy array
     cdef:
         int iN
         int nNode
@@ -282,9 +301,86 @@ def trace_star_formation_histroy(fname, snap, indices, h):
             mvNodes[iN][1] = nodes[iN].metals
             mvNodes[iN][2] = nodes[iN].sfr
         output[iG] = np.asarray(mvNodes)
-    free_meraxes(snapMin, snap)
     return output
 
+
+def save_star_formation_history(fname, snapList, idxList, h, 
+                                prefix = 'sfh', path = './'):
+    # Read galaxy properties form Meraxes outputs
+    cdef:
+        int iS, nSnap
+        int snap, snapMax, snapMin
+    if isscalar(snapList):
+        snapMax = snapList
+        nSnap = 1
+        snapList = [snapList]
+        idxList = [idxList]
+    else:
+        snapMax = max(snapList)
+        nSnap = len(snapList)
+    snapMin = read_meraxes(fname, snapMax, h)
+    # Read and save galaxy merge trees
+    cdef:
+        int iG, nGal
+        int *indices
+        prop_set *galProps
+
+        int iN, nNode
+        props *pNodes
+    for iS in xrange(nSnap):
+        snap = snapList[iS]
+        fp = open(get_output_name(prefix, ".bin", snap, path), "wb")
+        galIndices = idxList[iS]
+        nGal = len(galIndices)
+        fp.write(pack('i', nGal))
+        fp.write(pack('%di'%nGal, *galIndices))
+        indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+        galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
+                                                  g_metals, g_sfr, snap, indices, nGal)
+        free(indices)
+        for iG in xrange(nGal):
+            nNode = galProps[iG].nNode
+            fp.write(pack('i', nNode))
+            pNodes = galProps[iG].nodes
+            for iN in xrange(nNode):
+                fp.write(pack('hhf', pNodes.index, pNodes.metals, pNodes.sfr))
+                pNodes += 1
+        fp.close()
+    free_meraxes(snapMin, snapMax)
+
+
+cdef prop_set *read_properties_by_file(name):
+    fp = open(name, "rb")
+    cdef:
+        int iG
+        int nGal = unpack('i', fp.read(sizeof(int)))[0]
+        prop_set *galProps = <prop_set*>malloc(nGal*sizeof(prop_set))
+        prop_set *pGalProps = galProps
+
+        int iN, nNode
+        props *pNodes
+    fp.read(nGal*sizeof(int)) # Skip galaxy indices
+    for iG in xrange(nGal):
+        pGalProps = galProps + iG
+        nNode = unpack('i', fp.read(sizeof(int)))[0]
+        pGalProps.nNode = nNode
+        pNodes = <props*>malloc(nNode*sizeof(props))
+        pGalProps.nodes = pNodes
+        for iN in xrange(nNode):
+            pNodes.index = unpack('h', fp.read(sizeof(short)))[0]
+            pNodes.metals = unpack('h', fp.read(sizeof(short)))[0]
+            pNodes.sfr = unpack('f', fp.read(sizeof(float)))[0]
+            pNodes += 1
+    fp.close()
+    return galProps
+
+
+def read_galaxy_indices(name):
+    fp = open(name, "rb")
+    nGal = unpack('i', fp.read(sizeof(int)))[0]
+    indices = np.array(unpack('%di'%nGal, fp.read(nGal*sizeof(int))))
+    fp.close()
+    return indices
 
 def Lyman_absorption_Fan(double[:] obsWaves, double z):
     """
@@ -441,20 +537,6 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
     return np.asarray(absorption)
 
 
-def get_output_name(prefix, snap, path):
-    """
-    Function to generate the name of the output
-    """
-    fname = prefix + "_%03d.hdf5"%snap
-    # Avoid repeated name
-    idx = 2
-    fileList = os.listdir(path)
-    while fname in fileList:
-        fname = prefix + "_%03d_%d.hdf5"%(snap, idx)
-        idx += 1
-    return os.path.join(path, fname)
-
-
 def get_age_list(fname, snap, nAgeList, h):
     """
     Function to generate an array of stellar ages. It is called by galaxy_mags(...).
@@ -514,6 +596,7 @@ cdef dust_params *dust_parameters(double[:] metalMass, double[:] sfr, double[:] 
 
 
 def composite_spectra(fname, snapList, idxList, h, Om0, 
+                      sfhPath = None,
                       restFrame = [], obsBands = [],
                       obsFrame = False,
                       IGM = 'I2014',
@@ -562,11 +645,16 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         nSnap = 1
         snapList = [snapList]
         idxList = [idxList]
+        if sfhPath is not None:
+            sfhPath = [sfhPath]
     else:
         snapMax = max(snapList)
         nSnap = len(snapList)
 
-    snapMin = read_meraxes(fname, snapMax, h)
+    if sfhPath is None:
+        snapMin = read_meraxes(fname, snapMax, h)
+    else:
+        snapMin = 1
 
     waves = get_wavelength()
     cdef:
@@ -597,9 +685,21 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
 
     for i in xrange(nSnap):
         snap = snapList[i]
-        galIndices = idxList[i]
-        nGal = len(galIndices)
-        indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+
+        if sfhPath is None:
+            galIndices = idxList[i]
+            nGal = len(galIndices)
+            indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+            galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
+                                                      g_metals, g_sfr,
+                                                      snap, indices, nGal)
+            free(indices)
+        else:
+            galIndices = read_galaxy_indices(sfhPath[i])
+            nGal = len(galIndices)
+            galProps = read_properties_by_file(sfhPath[i])
+
+
         nAgeList = snap - snapMin + 1
         ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
         z = meraxes.io.grab_redshift(fname, snap)
@@ -620,9 +720,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         if IGM == 'I2014':
             absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
 
-        galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
-                                                  g_metals, g_sfr,
-                                                  snap, indices, nGal)
+
         cOutput = composite_spectra_cext(galProps, nGal,
                                          z, ageList, nAgeList,
                                          filters, nRest, nObs, mAB,
@@ -651,7 +749,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
             names = waves
        
         DataFrame(output, index = galIndices, columns = names).\
-        to_hdf(get_output_name(prefix, snap, path), "w")
+        to_hdf(get_output_name(prefix, ".hdf5", snap, path), "w")
        
         if len(snapList) == 1:
             mvMags = np.zeros(nGal*nFilter, dtype = 'f4')
@@ -659,7 +757,6 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 
         free_int_spectra()
-        free(indices)       
         free(ageList)
         free(dustArgs)
         free(filters)
@@ -667,7 +764,8 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         free(cOutput)
 
     free_raw_spectra()
-    free_meraxes(snapMin, snapMax)
+    if sfhPath is None:
+        free_meraxes(snapMin, snapMax)
 
     if len(snapList) == 1:
         return mags
@@ -751,7 +849,7 @@ def UV_slope(fname, snapList, idxList, h,
         columns = np.append(["beta", "norm", "R"], centreWaves)
         columns[-1] = "M1600"
         DataFrame(output, index = galIndices, columns = columns). \
-        to_hdf(get_output_name(prefix, snap, path), "w")
+        to_hdf(get_output_name(prefix, ".hdf5", snap, path), "w")
         
         if len(snapList) == 1:
             mvMags = np.zeros(nGal*(nFilter + nR), dtype = 'f4')
@@ -781,6 +879,7 @@ DEF DUST_SIGMA = .34
 DEF DUST_BRIGHTER = -35.
 DEF DUST_FAINTER = 0.
 DEF DUST_BOUND = -5.
+
 
 cdef double beta_MUV(double obsMag, double slope, double inter):
     if obsMag >= DUST_M0:
