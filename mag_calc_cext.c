@@ -733,6 +733,10 @@ inline double *templates_working(double z, double *filters, int nRest, int nObs,
             for(iF = 0; iF < nFilter; ++iF) 
                 *pData++ = interp((double)iZ, refMetals, refSpectra[iF*nAge+ iA], nZ);
 
+    if (nObs > 0) {
+        free(obsWaves);
+        free_2d_double(obsData, nZ*nAge);
+    }
     if (dustArgs != NULL)
         free_2d_double(data, nZ*nAge);
     free_2d_double(refSpectra, nFilter*nAge); 
@@ -771,7 +775,6 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
 
     timing_start("# Compute magnitudes\n");
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
-        //printf("nProg = %d, iG = %d nGal = %d\n", nProg, iG, nGal);
         // Initialise fluxes
         for(iF = 0; iF < nFilter; ++iF)
             flux[iF] = TOL;
