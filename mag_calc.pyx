@@ -571,25 +571,21 @@ cdef extern from "mag_calc_cext.h":
                          dust_params *dustArgs)
 
 
-cdef dust_params *dust_parameters(double[:] metalMass, double[:] sfr, double[:] radius, 
-                                  double c1, double nISM, double c2, double nBC,
-                                  double tBC, int nGal):
+cdef dust_params *dust_parameters(dustParams):
     cdef:
         int iG
-        double rRatio
-        double rRatio2
+        int nGal = len(dustParams)
+        double[:, ::1] mvDustParams = np.array(dustParams)
         dust_params *dustArgs = <dust_params*>malloc(nGal*sizeof(dust_params))
         dust_params *pDustArgs 
 
     for iG in xrange(nGal):
-        rRatio = radius[iG]/1e-4
-        rRatio2 = rRatio*rRatio
         pDustArgs = dustArgs + iG
-        pDustArgs.tauUV_ISM = c1*(metalMass[iG]/1e-4)/rRatio2
-        pDustArgs.nISM = nISM
-        pDustArgs.tauUV_BC = c2*(sfr[iG]/100)/rRatio2
-        pDustArgs.nBC = nBC
-        pDustArgs.tBC = tBC
+        pDustArgs.tauUV_ISM = mvDustParams[iG, 0]
+        pDustArgs.nISM = mvDustParams[iG, 1]
+        pDustArgs.tauUV_BC = mvDustParams[iG, 2]
+        pDustArgs.nBC = mvDustParams[iG, 3]
+        pDustArgs.tBC = mvDustParams[iG, 4]
 
     return dustArgs
     
@@ -705,9 +701,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         z = meraxes.io.grab_redshift(fname, snap)
 
         if dustParams is not None:
-            dustArgs = dust_parameters(dustParams[0][i], dustParams[1][i], dustParams[2][i],
-                                       dustParams[3], dustParams[4], dustParams[5], 
-                                       dustParams[6], dustParams[7], nGal)
+            dustArgs = dust_parameters(dustParams[i])
         if nFilter != 0:
             filters = init_1d_double(read_filters(restFrame, obsBands, z))
             mAB = 1
@@ -844,10 +838,7 @@ def UV_slope(fname, snapList, idxList, h,
         z = meraxes.io.grab_redshift(fname, snap)
 
         if dustParams is not None:
-            dustArgs = dust_parameters(dustParams[0][i], dustParams[1][i], dustParams[2][i],
-                                       dustParams[3], dustParams[4], dustParams[5], 
-                                       dustParams[6], dustParams[7], nGal)
-
+            dustArgs = dust_parameters(dustParams[i])
 
         cOutput = UV_slope_cext(galProps, nGal,
                                 z, ageList, nAgeList,
