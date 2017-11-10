@@ -772,6 +772,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
 
 
 def UV_slope(fname, snapList, idxList, h,
+             sfhPath = None,
              dustParams = None,
              prefix = "slope", path = "./"):
 
@@ -785,11 +786,16 @@ def UV_slope(fname, snapList, idxList, h,
         nSnap = 1
         snapList = [snapList]
         idxList = [idxList]
+        if sfhPath is not None:
+            sfhPath = [sfhPath]
     else:
         snapMax = max(snapList)
         nSnap = len(snapList)
 
-    snapMin = read_meraxes(fname, snapMax, h)
+    if sfhPath is None:
+        snapMin = read_meraxes(fname, snapMax, h)
+    else:
+        snapMin = 1
 
     waves = get_wavelength()
     centreWaves, betaFilters = beta_filters()
@@ -818,11 +824,21 @@ def UV_slope(fname, snapList, idxList, h,
         float[:] mvMags
 
     for i in xrange(nSnap):
-        
         snap = snapList[i]
-        galIndices = idxList[i]
-        nGal = len(galIndices)
-        indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+
+        if sfhPath is None:
+            galIndices = idxList[i]
+            nGal = len(galIndices)
+            indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+            galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
+                                                      g_metals, g_sfr,
+                                                      snap, indices, nGal)
+            free(indices)
+        else:
+            galIndices = read_galaxy_indices(sfhPath[i])
+            nGal = len(galIndices)
+            galProps = read_properties_by_file(sfhPath[i])
+
         nAgeList = snap - snapMin + 1
         ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
         z = meraxes.io.grab_redshift(fname, snap)
@@ -832,9 +848,7 @@ def UV_slope(fname, snapList, idxList, h,
                                        dustParams[3], dustParams[4], dustParams[5], 
                                        dustParams[6], dustParams[7], nGal)
 
-        galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
-                                                  g_metals, g_sfr,
-                                                  snap, indices, nGal)
+
         cOutput = UV_slope_cext(galProps, nGal,
                                 z, ageList, nAgeList,
                                 logWaves, filters, nFilter,
@@ -858,13 +872,13 @@ def UV_slope(fname, snapList, idxList, h,
 
         free_int_spectra()
         free(dustArgs)
-        free(indices)       
         free(ageList)
         free(cOutput)
        
     free_raw_spectra()
     free(filters)
-    free_meraxes(snapMin, snapMax)
+    if sfhPath is None:
+        free_meraxes(snapMin, snapMax)
 
     if len(snapList) == 1:
         return mags
