@@ -625,8 +625,8 @@ inline double **dust_absorption(struct dust_params *dustArgs) {
 }
 
 
-inline double *templates_working(double z, double *filters, int nRest, int nObs, 
-                                 double *LyAbsorption, struct dust_params *dustArgs) {
+void templates_working(double *fluxTmp, double z, double *filters, int nRest, int nObs, 
+                       double *LyAbsorption, struct dust_params *dustArgs) {
     int iA, iW, iZ, iAZ, iF;
     double *pData;
 
@@ -680,7 +680,6 @@ inline double *templates_working(double z, double *filters, int nRest, int nObs,
     // The first dimension refers to metallicites
     // The second dimension refers to ages
     // The last dimension refers to filters/wavelengths
-    double *fluxTmp;
 
     if (filters != NULL) {
         // Intgrate SED templates over filters
@@ -726,7 +725,6 @@ inline double *templates_working(double z, double *filters, int nRest, int nObs,
 
     // Interploate SED templates along metallicities
     //printf("# Interpolate SED templates along metallicities\n");
-    fluxTmp = (double*)malloc(NUM_Z*nAge*nFilter*sizeof(double));
     pData = fluxTmp;
     for(iZ = 0; iZ < NUM_Z; ++iZ)
         for(iA = 0; iA < nAge; ++iA) 
@@ -740,8 +738,6 @@ inline double *templates_working(double z, double *filters, int nRest, int nObs,
     if (dustArgs != NULL)
         free_2d_double(data, nZ*nAge);
     free_2d_double(refSpectra, nFilter*nAge); 
-    //timing_end();
-    return fluxTmp;   
 }
 
 
@@ -757,9 +753,8 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
     int iF, iG, iP, iFG;
     double *pData;
 
-    double *fluxTmp;
-
     int nFilter = filters == NULL ? g_intSpectra->nWaves : nObs + nRest;
+    double *fluxTmp = (double*)malloc(NUM_Z*nAgeList*nFilter*sizeof(double));
     double *flux = malloc(nFilter*sizeof(double));
     float *output = malloc(nGal*nFilter*sizeof(float));
     float *pOutput = output;
@@ -774,6 +769,8 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
     templates_time_integration(ageList, nAgeList);   
 
     timing_start("# Compute magnitudes\n");
+    if (dustArgs == NULL)
+        templates_working(fluxTmp, z, filters, nRest, nObs, absorption, dustArgs);
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
         // Initialise fluxes
         for(iF = 0; iF < nFilter; ++iF)
@@ -781,8 +778,8 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
         // Sum contributions from all progentiors
         pGalProps = galProps + iG;
         nProg = pGalProps->nNode;
-        fluxTmp = templates_working(z, filters, nRest, nObs, absorption, 
-                                    dustArgs + iG);
+        if (dustArgs != NULL)
+            templates_working(fluxTmp, z, filters, nRest, nObs, absorption, dustArgs + iG);
         for(iP = 0; iP < nProg; ++iP) {
             pNodes = pGalProps->nodes + iP;
             sfr = pNodes->sfr;
@@ -791,12 +788,11 @@ float *composite_spectra_cext(struct prop_set *galProps, int nGal,
                 flux[iF] += sfr*pData[iF];
             }
         }
-        free(fluxTmp);
         // Store output
         for(iF = 0; iF < nFilter; ++iF) 
             *pOutput++ = (float)flux[iF];
-        
     }
+    free(fluxTmp);
     pOutput = output;
     if (mAB)
         for(iFG = 0; iFG < nFilter*nGal; iFG++) {
