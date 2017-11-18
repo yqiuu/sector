@@ -5,7 +5,7 @@ float **g_sfr;
 
 struct props {
     short index;
-    short metals;
+    float metals;
     float sfr;
 };
 
@@ -18,6 +18,18 @@ struct prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nex
                                                 float **galMetals, float **galSFR,
                                                 int tSnap, int *indices, int nGal);
 
+
+struct sed_params {
+    double *Z;
+    int nZ;
+    int minZ;
+    int maxZ;
+    double *waves;
+    int nWaves;
+    double *age;
+    int nAge;
+    double *data;
+};
 
 void free_raw_spectra(void);
 
@@ -33,12 +45,9 @@ struct dust_params {
 };
 
 
-float *composite_spectra_cext(struct prop_set *galProps, int nGal,
+float *composite_spectra_cext(struct sed_params *rawSpectra,
+                              struct prop_set *galProps, int nGal,
                               double z, double *ageList, int nAgeList,
-                              double *filters, int nRest, int nObs, int mAB,
-                              double *absorption, struct dust_params *dustArgs);
-
-float *UV_slope_cext(struct prop_set *galProps, int nGal,
-                     double z, double *ageList, int nAgeList,
-                     double *logWaves, double *filters, int nFilter,
-                     struct dust_params *dustArgs);
+                              double *filters, double *logWaves, int nRest, int nObs,
+                              double *absorption, struct dust_params *dustArgs,
+                              int outType);

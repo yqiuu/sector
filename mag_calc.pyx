@@ -5,6 +5,7 @@ from struct import pack, unpack
 
 from cython import boundscheck, wraparound
 from libc.stdlib cimport malloc, free
+from libc.string cimport memcpy
 from libc.math cimport exp, log
 
 import numpy as np
@@ -36,8 +37,6 @@ cdef:
     float **g_metals
     float **g_sfr
 #========================================================================================
-
-
 cdef int *init_1d_int(int[:] memview):
     cdef:
         int nSize = memview.shape[0]
@@ -80,106 +79,11 @@ def timing_end():
     print "#**********************************************************\n"
 
 
-def get_wavelength():
-    """
-    Return wavelengths of SED templates in a unit of angstrom
-    """
-    global inputDict
-    fp = open(os.path.join(inputDict, "sed_waves.bin"), "rb")
-    nWaves = unpack('i', fp.read(sizeof(int)))[0]
-    waves = np.array(unpack('%dd'%nWaves, fp.read(nWaves*sizeof(double))))
-    fp.close()
-    return waves
-
-
-def HST_filters(filterNames):
-    """
-    Quick access of transmission curves of HST filters
-
-    filterNames can be a list of filter names. (B435, V606, i775,
-    I814, z850, Y098, Y105, J125, H160, 3.6)
-    
-    Output is a 2-d list. Rows are different filters. First column
-    is the filter names. Second column is the transmission curve.
-
-    The output is to be passed to galaxy_mags(...)
-    """
-    global filterList
-    obsBands = []
-    for name in filterNames:
-        obsBands.append([name, np.load(filterList[name])])
-    return obsBands
-
-
-def read_filters(restFrame, obsBands, z):
-    """
-    This function is to generate transmission curves that has the 
-    same wavelengths with SED templates. It is called by galaxy_mags(...). 
-    The input format refer to galaxy_mags(...). 
-
-    Before integration over the filters, the fluxes must be a function of wavelength.
-    After integration over the filters, the fluxex becomes a function of frequency.
-    """
-    waves = get_wavelength()
-    nRest = len(restFrame)
-    nObs = len(obsBands)
-    filters = np.zeros([nRest + nObs, len(waves)])
-    obsWaves = (1 + z)*waves
-    for i in xrange(nRest):
-        centre, bandWidth = restFrame[i]
-        lower = centre - bandWidth/2.
-        upper = centre + bandWidth/2.
-        filters[i] = np.interp(waves, [lower, upper], [1., 1.], left = 0., right = 0.)
-        filters[i] /= np.trapz(filters[i]/waves, waves)
-        filters[i] *= 3.34e4*waves
-    for i in xrange(nObs):
-        fWaves, trans = obsBands[i][1]
-        filters[nRest + i] = np.interp(obsWaves, fWaves, trans, left = 0., right = 0.)
-        filters[nRest + i] /= np.trapz(filters[nRest + i]/waves, waves)
-        filters[nRest + i] *= 3.34e4*obsWaves
-    return filters.flatten()
-
-
-def beta_filters():
-    """
-    return the filters defined by Calzetti et al. 1994, which is used to calculate
-    the UV continuum slope
-    """
-    windows = np.array([[1268., 1284.],
-                        [1309., 1316.],
-                        [1342., 1371.],
-                        [1407., 1515.],
-                        [1562., 1583.],
-                        [1677., 1740.],
-                        [1760., 1833.],
-                        [1866., 1890.],
-                        [1930., 1950.],
-                        [2400., 2580.]])
-    waves = get_wavelength()
-    nFilter = len(windows)
-    filters = np.zeros([nFilter + 1, len(waves)])
-    for iF in xrange(nFilter):
-        filters[iF] = np.interp(waves, windows[iF], [1., 1.], left = 0., right = 0.)
-        filters[iF] /= np.trapz(filters[iF], waves)
-    filters[-1] = read_filters([[1600., 100.]], [], 0.)
-    centreWaves = np.append(windows.mean(axis = 1), 1600.)
-    return centreWaves, filters.flatten()
-        
-
-def get_output_name(prefix, postfix, snap, path):
-    """
-    Function to generate the name of the output
-    """
-    fname = prefix + "_%03d"%snap + postfix
-    # Avoid repeated name
-    idx = 2
-    fileList = os.listdir(path)
-    while fname in fileList:
-        fname = prefix + "_%03d_%d"%(snap, idx) + postfix
-        idx += 1
-    return os.path.join(path, fname)
-
-
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Functions to load galaxy properties                                           #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 def read_meraxes(fname, int snapMax, h):
     """
     This function reads meraxes output. It is called by galaxy_mags(...).
@@ -257,19 +161,103 @@ cdef void free_meraxes(int snapMin, int snapMax):
     free(g_metals)
     free(g_sfr)
 
+
 cdef extern from "mag_calc_cext.h":
     struct props:
         short index
-        short metals
+        float metals
         float sfr
 
     struct prop_set:
         props *nodes
         int nNode
 
-    prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
-                                             float **galMetals, float **galSFR,
-                                             int tSnap, int *indices, int nGal)
+cdef struct trace_params:
+    int **firstProgenitor
+    int **nextProgenitor
+    float **metals
+    float **sfr
+    int tSnap
+    props *nodes
+    int nNode
+
+DEF MAX_NODE = 100000
+
+cdef void trace_progenitors(int snap, int galIdx, trace_params *args):
+    cdef:
+        float sfr
+        props *pNodes
+        int nProg
+    if galIdx >= 0:
+        sfr = args.sfr[snap][galIdx]
+        if sfr > 0.:
+            args.nNode += 1
+            nProg = args.nNode
+            if (nProg >= MAX_NODE):
+                raise MemoryError("Error: Number of progenitors exceeds MAX_NODE")
+            pNodes = args.nodes + nProg
+            pNodes.index = args.tSnap - snap
+            pNodes.metals = args.metals[snap][galIdx]
+            pNodes.sfr = sfr
+            #printf("snap %d, metals %d, sfr %.3f\n", snap, metals, sfr)
+        
+        trace_progenitors(snap - 1, args.firstProgenitor[snap][galIdx], args)
+        trace_progenitors(snap, args.nextProgenitor[snap][galIdx], args)
+
+
+cdef prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
+                                              float **galMetals, float **galSFR,
+                                              int tSnap, int *indices, int nGal):
+    cdef:
+        int iG
+
+        size_t memSize
+        size_t totalMemSize = 0
+
+        prop_set *galProps = <prop_set*>malloc(nGal*sizeof(prop_set))
+        prop_set *pGalProps
+        props nodes[MAX_NODE]
+        trace_params args
+
+        int galIdx
+        int nProg
+        float sfr
+
+    args.firstProgenitor = firstProgenitor
+    args.nextProgenitor = nextProgenitor
+    args.metals = galMetals
+    args.sfr = galSFR
+    args.tSnap = tSnap
+    args.nodes = nodes
+
+    timing_start("# Read galaxies properties")
+    for iG in xrange(nGal):
+        galIdx = indices[iG]
+        nProg = -1
+        sfr = galSFR[tSnap][galIdx]
+        if sfr > 0.:
+            nProg += 1
+            nodes[nProg].index = 0
+            nodes[nProg].metals = galMetals[tSnap][galIdx]
+            nodes[nProg].sfr = sfr
+        args.nNode = nProg
+        trace_progenitors(tSnap - 1, firstProgenitor[tSnap][galIdx], &args)
+        nProg = args.nNode + 1
+        pGalProps = galProps + iG
+        pGalProps.nNode = nProg
+        if nProg == 0:
+            pGalProps.nodes = NULL
+            print "Warning: snapshot %d, index %d"%(tSnap, galIdx)
+            print "         the star formation rate is zero throughout the histroy"
+        else:
+            memSize = nProg*sizeof(props)
+            pGalProps.nodes = <props*>malloc(memSize)
+            memcpy(pGalProps.nodes, nodes, memSize)
+            totalMemSize += memSize
+
+    print "# %.1f MB memory has been allocted"%(totalMemSize/1024./1024.)
+    timing_end()
+    return galProps
 
 
 def trace_star_formation_history(fname, snap, galIndices, h):
@@ -343,7 +331,8 @@ def save_star_formation_history(fname, snapList, idxList, h,
             fp.write(pack('i', nNode))
             pNodes = galProps[iG].nodes
             for iN in xrange(nNode):
-                fp.write(pack('hhf', pNodes.index, pNodes.metals, pNodes.sfr))
+                fp.write(pack('h', pNodes.index))
+                fp.write(pack('ff', pNodes.metals, pNodes.sfr))
                 pNodes += 1
         fp.close()
     free_meraxes(snapMin, snapMax)
@@ -368,7 +357,7 @@ cdef prop_set *read_properties_by_file(name):
         pGalProps.nodes = pNodes
         for iN in xrange(nNode):
             pNodes.index = unpack('h', fp.read(sizeof(short)))[0]
-            pNodes.metals = unpack('h', fp.read(sizeof(short)))[0]
+            pNodes.metals = unpack('f', fp.read(sizeof(float)))[0]
             pNodes.sfr = unpack('f', fp.read(sizeof(float)))[0]
             pNodes += 1
     fp.close()
@@ -382,6 +371,23 @@ def read_galaxy_indices(name):
     fp.close()
     return indices
 
+
+def get_age_list(fname, snap, nAgeList, h):
+    """
+    Function to generate an array of stellar ages. It is called by galaxy_mags(...).
+    """
+    travelTime = meraxes.io.read_snaplist(fname, h)[2]*1e6 # Convert Myr to yr
+    ageList = np.zeros(nAgeList)
+    for i in xrange(nAgeList):
+        ageList[i] = travelTime[snap - i - 1] - travelTime[snap]
+    return ageList
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Functions to compute the IGM absorption                                       #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 def Lyman_absorption_Fan(double[:] obsWaves, double z):
     """
     Depreciate function. It is original to calculate the optical depth of
@@ -537,18 +543,18 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
     return np.asarray(absorption)
 
 
-def get_age_list(fname, snap, nAgeList, h):
-    """
-    Function to generate an array of stellar ages. It is called by galaxy_mags(...).
-    """
-    travelTime = meraxes.io.read_snaplist(fname, h)[2]*1e6 # Convert Myr to yr
-    ageList = np.zeros(nAgeList)
-    for i in xrange(nAgeList):
-        ageList[i] = travelTime[snap - i - 1] - travelTime[snap]
-    return ageList
-
-
 cdef extern from "mag_calc_cext.h":
+    struct sed_params:
+        double *Z
+        int nZ
+        int minZ
+        int maxZ
+        double *waves
+        int nWaves
+        double *age
+        int nAge
+        double *data
+
     void free_raw_spectra()
 
     void free_int_spectra()
@@ -560,15 +566,12 @@ cdef extern from "mag_calc_cext.h":
         double nBC
         double tBC
 
-    float *composite_spectra_cext(prop_set *galProps, int nGal,
+    float *composite_spectra_cext(sed_params *rawSpectra,
+                                  prop_set *galProps, int nGal,
                                   double z, double *ageList, int nAgeList,
-                                  double *filters, int nRest, int nObs, int mAB,
-                                  double *absorption, dust_params *dustArgs)
-
-    float *UV_slope_cext(prop_set *galProps, int nGal,
-                         double z, double *ageList, int nAgeList,
-                         double *logWaves, double *filters, int nFilter,
-                         dust_params *dustArgs)
+                                  double *filters, double *logWaves, int nRest, int nObs,
+                                  double *absorption, dust_params *dustArgs,
+                                  int outType)
 
 
 cdef dust_params *dust_parameters(dustParams):
@@ -588,16 +591,162 @@ cdef dust_params *dust_parameters(dustParams):
         pDustArgs.tBC = mvDustParams[iG, 4]
 
     return dustArgs
+ 
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Functions to read SED templates                                               #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+cdef sed_params *read_sed_templates(path):
+    #===============================================================================#
+    # The dictionary define by *path* should contain:                               #
+    #                                                                               #
+    # "sed_Z.npy" Metallicity of SED templates in a 1-D array                       #  
+    #                                                                               #
+    # "sed_waves.npy" Wavelength of SED templates in a unit of angstrom in a 1-D    # 
+    # array                                                                         #
+    #                                                                               #
+    # "sed_age.npy" Stellar age of SED templates in a unit of yr in a 1-D array     #
+    #                                                                               #
+    # "sed_flux.npy" Flux density of SED templates in a unit of erg/s/A/cm^2 in a   #
+    # 3-D array. The flux density should be normlised by the surface area of a 10   #
+    # pc sphere. The first, second and third dimensions should be metallicity,      #
+    # wavelength and stellar age respectively.                                      #
+    #===============================================================================#
+    cdef sed_params *rawSpectra = <sed_params*>malloc(sizeof(sed_params))
+    # Read metallicity range
+    Z = np.load(os.path.join(path, "sed_Z.npy"))
+    rawSpectra.Z = init_1d_double(Z)
+    rawSpectra.nZ = len(Z)
+    rawSpectra.minZ = <short>(Z.min()*1000 - 0.5)
+    rawSpectra.maxZ = <short>(Z.max()*1000 - 0.5)
+    # Read wavelength
+    waves = np.load(os.path.join(path, "sed_waves.npy"))
+    rawSpectra.waves = init_1d_double(waves)
+    rawSpectra.nWaves = len(waves)
+    # Read stellar age
+    age = np.load(os.path.join(path, "sed_age.npy"))
+    rawSpectra.age = init_1d_double(age)
+    rawSpectra.nAge = len(age)
+    # Read flux
+    rawSpectra.data = init_1d_double(np.load(os.path.join(path, "sed_flux.npy")).flatten())
+    return rawSpectra
+
+
+def get_wavelength(path):
+    """
+    Return wavelengths of SED templates in a unit of angstrom
+    """
+    fp = open(os.path.join(path, "sed_waves.bin"), "rb")
+    nWaves = unpack('i', fp.read(sizeof(int)))[0]
+    waves = np.array(unpack('%dd'%nWaves, fp.read(nWaves*sizeof(double))))
+    fp.close()
+    return waves
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Functions to process filters                                                  #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+def HST_filters(filterNames):
+    """
+    Quick access of transmission curves of HST filters
+
+    filterNames can be a list of filter names. (B435, V606, i775,
+    I814, z850, Y098, Y105, J125, H160, 3.6)
     
+    Output is a 2-d list. Rows are different filters. First column
+    is the filter names. Second column is the transmission curve.
+
+    The output is to be passed to galaxy_mags(...)
+    """
+    global filterList
+    obsBands = []
+    for name in filterNames:
+        obsBands.append([name, np.load(filterList[name])])
+    return obsBands
 
 
-def composite_spectra(fname, snapList, idxList, h, Om0, 
-                      sfhPath = None,
+def read_filters(waves, restFrame, obsBands, z):
+    """
+    This function is to generate transmission curves that has the 
+    same wavelengths with SED templates. It is called by galaxy_mags(...). 
+    The input format refer to galaxy_mags(...). 
+
+    Before integration over the filters, the fluxes must be a function of wavelength.
+    After integration over the filters, the fluxex becomes a function of frequency.
+    """
+    nRest = len(restFrame)
+    nObs = len(obsBands)
+    filters = np.zeros([nRest + nObs, len(waves)])
+    obsWaves = (1 + z)*waves
+    for i in xrange(nRest):
+        centre, bandWidth = restFrame[i]
+        lower = centre - bandWidth/2.
+        upper = centre + bandWidth/2.
+        filters[i] = np.interp(waves, [lower, upper], [1., 1.], left = 0., right = 0.)
+        filters[i] /= np.trapz(filters[i]/waves, waves)
+        filters[i] *= 3.34e4*waves
+    for i in xrange(nObs):
+        fWaves, trans = obsBands[i][1]
+        filters[nRest + i] = np.interp(obsWaves, fWaves, trans, left = 0., right = 0.)
+        filters[nRest + i] /= np.trapz(filters[nRest + i]/waves, waves)
+        filters[nRest + i] *= 3.34e4*obsWaves
+    return filters.flatten()
+
+
+def beta_filters(waves):
+    """
+    return the filters defined by Calzetti et al. 1994, which is used to calculate
+    the UV continuum slope
+    """
+    windows = np.array([[1268., 1284.],
+                        [1309., 1316.],
+                        [1342., 1371.],
+                        [1407., 1515.],
+                        [1562., 1583.],
+                        [1677., 1740.],
+                        [1760., 1833.],
+                        [1866., 1890.],
+                        [1930., 1950.],
+                        [2400., 2580.]])
+    nFilter = len(windows)
+    filters = np.zeros([nFilter + 1, len(waves)])
+    for iF in xrange(nFilter):
+        filters[iF] = np.interp(waves, windows[iF], [1., 1.], left = 0., right = 0.)
+        filters[iF] /= np.trapz(filters[iF], waves)
+    filters[-1] = read_filters([[1600., 100.]], [], 0.)
+    centreWaves = np.append(windows.mean(axis = 1), 1600.)
+    return centreWaves, filters.flatten()
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Primary Functions                                                             #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+def get_output_name(prefix, postfix, snap, path):
+    """
+    Function to generate the name of the output
+    """
+    fname = prefix + "_%03d"%snap + postfix
+    # Avoid repeated name
+    idx = 2
+    fileList = os.listdir(path)
+    while fname in fileList:
+        fname = prefix + "_%03d_%d"%(snap, idx) + postfix
+        idx += 1
+    return os.path.join(path, fname)
+
+
+def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
+                      IGM = 'I2014', dustParams = None,
+                      prefix = "mags", path = "./",
                       restFrame = [], obsBands = [],
                       obsFrame = False,
-                      IGM = 'I2014',
-                      dustParams = None,
-                      prefix = "mags", path = "./"):
+                      sfhPath = None):
     """
     Main function to calculate galaxy magnitudes
     
@@ -623,7 +772,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
     centred at 1600 angstrom with filter width 50. angstrom, 
     and centred at 1700 angstrom with filter width 150. angstrom
 
-    obsBands: observed frmae magnitudes to be calculated. It can be the output of 
+    obsBands: observed frame magnitudes to be calculated. It can be the output of 
     HST_filters(...).
 
     Return: the function will store the output as a pandas hdf file. All results are 
@@ -652,8 +801,9 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
     else:
         snapMin = 1
 
-    waves = get_wavelength()
+    waves = get_wavelength(sedPath)
     cdef:
+        sed_params *rawSpectra = read_sed_templates(sedPath)
         int nWaves = len(waves)
         int nGal
         int *indices
@@ -665,11 +815,14 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         
         double z
 
-        int nRest = len(restFrame)
-        int nObs = len(obsBands)
-        int nFilter = nRest + nObs
+        int nRest = 0
+        int nObs = 0
+        int nFilter = 0
+        double *logWaves= NULL
         double *filters = NULL
-        int mAB
+        int cOutType = 0
+
+        int nR = 3
 
         double *absorption = NULL
 
@@ -681,7 +834,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
 
     for i in xrange(nSnap):
         snap = snapList[i]
-
+        # Read star formation rates and metallcities form galaxy merger trees
         if sfhPath is None:
             galIndices = idxList[i]
             nGal = len(galIndices)
@@ -694,59 +847,82 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
             galIndices = read_galaxy_indices(sfhPath[i])
             nGal = len(galIndices)
             galProps = read_properties_by_file(sfhPath[i])
-
-
+        # Read look back time
         nAgeList = snap - snapMin + 1
         ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
+        # Read redshift
         z = meraxes.io.grab_redshift(fname, snap)
-
+        # Convert the format of dust parameters 
         if dustParams is not None:
             dustArgs = dust_parameters(dustParams[i])
-        if nFilter != 0:
-            filters = init_1d_double(read_filters(restFrame, obsBands, z))
-            mAB = 1
-        else:
+        # Compute the transmission of the IGM
+        if IGM == 'I2014':
+            absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
+        # Generate Filters
+        if outType == 'ph':
+            filters = init_1d_double(read_filters(waves, restFrame, obsBands, z))
+            nRest = len(restFrame)
+            nObs = len(obsBands)
+            nFilter = nRest + nObs
+            cOutType = 0
+        elif outType == 'sp':
             nFilter = nWaves
             if obsFrame:
                 nObs = 1
-            mAB = 0
-
-        if IGM == 'I2014':
-            absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
-
-
-        cOutput = composite_spectra_cext(galProps, nGal,
-                                         z, ageList, nAgeList,
-                                         filters, nRest, nObs, mAB,
-                                         absorption, dustArgs)
-        mvOutput = <float[:nGal*nFilter]>cOutput
-        output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
-
-        if filters != NULL and nObs > 0:
-            # Convert apparent magnitudes to absolute magnitudes
+            cOutType = 1
+        elif outType == 'UV slope':
+            centreWaves, betaFilters = beta_filters(waves)
+            logWaves = init_1d_double(np.log(centreWaves))
+            filters = init_1d_double(betaFilters)
+            nRest = len(centreWaves)
+            nFilter = nRest
+            cOutType = 2
+        else:
+            raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
+        # Compute spectra
+        cOutput = composite_spectra_cext(rawSpectra,
+                                         galProps, nGal, z, ageList, nAgeList,
+                                         filters, logWaves, nRest, nObs,
+                                         absorption, dustArgs,
+                                         cOutType)
+        # Save the output to a numpy array
+        if outType == 'UV slope':
+            mvOutput = <float[:nGal*(nFilter + nR)]>cOutput
+            output = np.hstack([np.asarray(mvOutput[nGal*nFilter:], 
+                                           dtype = 'f4').reshape(nGal, -1),
+                                np.asarray(mvOutput[:nGal*nFilter], 
+                                           dtype = 'f4').reshape(nGal, -1)])
+        else:
+            mvOutput = <float[:nGal*nFilter]>cOutput
+            output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
+        # Convert apparent magnitudes to absolute magnitudes
+        if outType == 'ph' and nObs > 0:
             output[:, nRest:] += cosmo.distmod(z)
-        
-        if filters == NULL and obsFrame:
-            # Convert to observed frame fluxes
+        # Convert to observed frame fluxes       
+        if outType == 'sp' and obsFrame:
             factor = 10./cosmo.luminosity_distance(z).to(u.parsec).value
             output *= factor*factor
-  
-        if filters != NULL:
-            names = []
+        # Set output column names
+        if outType == 'ph':
+            columns = []
             for i in xrange(nRest):
-                names.append("M%d"%restFrame[i][0])
+                columns.append("M%d"%restFrame[i][0])
             for i in xrange(nObs):
-                names.append(obsBands[i][0])
-        elif obsFrame:
-            names = (1. + z)*waves
-        else:
-            names = waves
-       
-        DataFrame(output, index = galIndices, columns = names).\
+                columns.append(obsBands[i][0])
+        elif outType == 'sp':
+            columns = (1. + z)*waves if obsFrame else waves
+        elif outType == 'UV slope':
+            columns = np.append(["beta", "norm", "R"], centreWaves)
+            columns[-1] = "M1600"           
+        # Save the output to the disk
+        DataFrame(output, index = galIndices, columns = columns).\
         to_hdf(get_output_name(prefix, ".hdf5", snap, path), "w")
        
         if len(snapList) == 1:
-            mvMags = np.zeros(nGal*nFilter, dtype = 'f4')
+            if outType == 'UV slope':
+                mvMags = np.zeros(nGal*(nFilter + nR), dtype = 'f4')
+            else:
+                mvMags = np.zeros(nGal*nFilter, dtype = 'f4')
             mvMags[...] = mvOutput
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 
@@ -757,6 +933,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         free(absorption)
         free(cOutput)
 
+    free(logWaves)
     free_raw_spectra()
     if sfhPath is None:
         free_meraxes(snapMin, snapMax)
@@ -765,115 +942,11 @@ def composite_spectra(fname, snapList, idxList, h, Om0,
         return mags
 
 
-def UV_slope(fname, snapList, idxList, h,
-             sfhPath = None,
-             dustParams = None,
-             prefix = "slope", path = "./"):
-
-    cdef:
-        int i, iG
-        int snap, nSnap
-        int sanpMin, snapMax
-
-    if isscalar(snapList):
-        snapMax = snapList
-        nSnap = 1
-        snapList = [snapList]
-        idxList = [idxList]
-        if sfhPath is not None:
-            sfhPath = [sfhPath]
-    else:
-        snapMax = max(snapList)
-        nSnap = len(snapList)
-
-    if sfhPath is None:
-        snapMin = read_meraxes(fname, snapMax, h)
-    else:
-        snapMin = 1
-
-    waves = get_wavelength()
-    centreWaves, betaFilters = beta_filters()
-    cdef:
-        int nWaves = len(waves)
-        int nGal
-        int *indices
-
-        prop_set *galProps
-
-        int nAgeList
-        double *ageList
-        
-        double z
-
-        double *logWaves = init_1d_double(np.log(centreWaves))
-        double *filters = init_1d_double(betaFilters)
-        int nFilter = len(centreWaves)
-
-        dust_params *dustArgs = NULL
-
-        int nR = 3
-   
-        float *cOutput 
-        float[:] mvOutput
-        float[:] mvMags
-
-    for i in xrange(nSnap):
-        snap = snapList[i]
-
-        if sfhPath is None:
-            galIndices = idxList[i]
-            nGal = len(galIndices)
-            indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-            galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
-                                                      g_metals, g_sfr,
-                                                      snap, indices, nGal)
-            free(indices)
-        else:
-            galIndices = read_galaxy_indices(sfhPath[i])
-            nGal = len(galIndices)
-            galProps = read_properties_by_file(sfhPath[i])
-
-        nAgeList = snap - snapMin + 1
-        ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
-        z = meraxes.io.grab_redshift(fname, snap)
-
-        if dustParams is not None:
-            dustArgs = dust_parameters(dustParams[i])
-
-        cOutput = UV_slope_cext(galProps, nGal,
-                                z, ageList, nAgeList,
-                                logWaves, filters, nFilter,
-                                dustArgs)
-
-        mvOutput = <float[:nGal*(nFilter + nR)]>cOutput
-        output = np.hstack([np.asarray(mvOutput[nGal*nFilter:], 
-                                       dtype = 'f4').reshape(nGal, -1),
-                            np.asarray(mvOutput[:nGal*nFilter], 
-                                       dtype = 'f4').reshape(nGal, -1)])
-        
-        columns = np.append(["beta", "norm", "R"], centreWaves)
-        columns[-1] = "M1600"
-        DataFrame(output, index = galIndices, columns = columns). \
-        to_hdf(get_output_name(prefix, ".hdf5", snap, path), "w")
-        
-        if len(snapList) == 1:
-            mvMags = np.zeros(nGal*(nFilter + nR), dtype = 'f4')
-            mvMags[...] = mvOutput
-            mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
-
-        free_int_spectra()
-        free(dustArgs)
-        free(ageList)
-        free(cOutput)
-       
-    free_raw_spectra()
-    free(filters)
-    if sfhPath is None:
-        free_meraxes(snapMin, snapMax)
-
-    if len(snapList) == 1:
-        return mags
-
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Dust model of Mason et al . 2015                                              #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 from scipy.interpolate import interp1d
 from scipy.optimize import brentq
