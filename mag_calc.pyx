@@ -16,23 +16,14 @@ from astropy.cosmology import FlatLambdaCDM
 from astropy import units as u
 from dragons import meraxes
 
-# Global variables
-#========================================================================================
-global sTime, inputDict
-inputDict = "/lustre/projects/p113_astro/yqiu/magcalc/input/"
-filterList = {"B435":os.path.join(inputDict, "HST_ACS_F435W.npy"), 
-              "V606":os.path.join(inputDict, "HST_ACS_F606W.npy"), 
-              "i775":os.path.join(inputDict, "HST_ACS_F775W.npy"), 
-              "I814":os.path.join(inputDict, "HST_ACS_F814W.npy"), 
-              "z850":os.path.join(inputDict, "HST_ACS_F850LP.npy"), 
-              "Y098":os.path.join(inputDict, "HST_IR_F098M.npy"), 
-              "Y105":os.path.join(inputDict, "HST_IR_F105W.npy"), 
-              "J125":os.path.join(inputDict, "HST_IR_F125W.npy"), 
-              "H160":os.path.join(inputDict, "HST_IR_F160W.npy"), 
-              "3.6":os.path.join(inputDict,  "HST_IRAC_3.6.npy")}
 
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Basic functions                                                               #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+global sTime
 
-#========================================================================================
 cdef int *init_1d_int(int[:] memview):
     cdef:
         int nSize = memview.shape[0]
@@ -725,6 +716,19 @@ def get_wavelength(path):
 # Functions to process filters                                                  #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+global inputDict
+inputDict = "/lustre/projects/p113_astro/yqiu/magcalc/input/"
+filterList = {"B435":os.path.join(inputDict, "HST_ACS_F435W.npy"), 
+              "V606":os.path.join(inputDict, "HST_ACS_F606W.npy"), 
+              "i775":os.path.join(inputDict, "HST_ACS_F775W.npy"), 
+              "I814":os.path.join(inputDict, "HST_ACS_F814W.npy"), 
+              "z850":os.path.join(inputDict, "HST_ACS_F850LP.npy"), 
+              "Y098":os.path.join(inputDict, "HST_IR_F098M.npy"), 
+              "Y105":os.path.join(inputDict, "HST_IR_F105W.npy"), 
+              "J125":os.path.join(inputDict, "HST_IR_F125W.npy"), 
+              "H160":os.path.join(inputDict, "HST_IR_F160W.npy"), 
+              "3.6":os.path.join(inputDict,  "HST_IRAC_3.6.npy")}
+
 def HST_filters(filterNames):
     """
     Quick access of transmission curves of HST filters
@@ -792,14 +796,14 @@ def beta_filters(waves):
     for iF in xrange(nFilter):
         filters[iF] = np.interp(waves, windows[iF], [1., 1.], left = 0., right = 0.)
         filters[iF] /= np.trapz(filters[iF], waves)
-    filters[-1] = read_filters([[1600., 100.]], [], 0.)
+    filters[-1] = read_filters(waves, [[1600., 100.]], [], 0.)
     centreWaves = np.append(windows.mean(axis = 1), 1600.)
     return centreWaves, filters.flatten()
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
-# Primary Functions                                                             #
+# Primary functions                                                             #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 def get_output_name(prefix, postfix, snap, path):
@@ -815,6 +819,13 @@ def get_output_name(prefix, postfix, snap, path):
         idx += 1
     return os.path.join(path, fname)
 
+
+cdef void free_gal_props(prop_set *galProps, int nGal):
+    cdef int iG
+    for iG in xrange(nGal):
+        free(galProps[iG].nodes)
+    free(galProps)
+ 
 
 def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
                       IGM = 'I2014', dustParams = None,
@@ -1007,13 +1018,14 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 
         free_int_spectra()
+        free_gal_props(galProps, nGal)
         free(ageList)
         free(dustArgs)
-        free(filters)
         free(absorption)
+        free(filters)
         free(cOutput)
+        free(logWaves)
 
-    free(logWaves)
     free_raw_spectra()
     if sfhPath is None:
         free_meraxes(snapMin, snapMax)
