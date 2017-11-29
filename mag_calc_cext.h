@@ -31,10 +31,6 @@ struct sed_params {
     double *data;
 };
 
-void free_raw_spectra(void);
-
-void free_int_spectra(void);
-
 
 struct dust_params {
     double tauUV_ISM;

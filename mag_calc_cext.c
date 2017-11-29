@@ -268,7 +268,6 @@ struct sed_params {
 };
 
 
-struct sed_params *g_rawSpectra = NULL;
 struct sed_params *g_intSpectra = NULL;
 
 struct sed_params *init_template(double *age, int nAge, 
@@ -292,21 +291,14 @@ void free_template(struct sed_params *spectra, int nRows) {
 }
 
 
-void free_raw_spectra(void) {
-    free(g_rawSpectra->age);
-    free(g_rawSpectra->waves);
-    free(g_rawSpectra->data);
-    g_rawSpectra = NULL;
-}
-
-
 void free_int_spectra(void) {
     free(g_intSpectra->data);
     g_intSpectra = NULL;
 }
 
 
-void templates_time_integration(double *ageList, int nAgeList) {
+void templates_time_integration(struct sed_params *rawSpectra, 
+                                double *ageList, int nAgeList) {
     int iA, iW, iZ;
     double *pData;
 
@@ -323,12 +315,12 @@ void templates_time_integration(double *ageList, int nAgeList) {
     
     if(g_intSpectra == NULL) {
         timing_start("# Integrate SED templates over time\n");
-        nAge = g_rawSpectra->nAge;
-        age = g_rawSpectra->age;
-        nWaves = g_rawSpectra->nWaves; 
-        waves = g_rawSpectra->waves;
-        nZ = g_rawSpectra->nZ;
-        data = g_rawSpectra->data;
+        nAge = rawSpectra->nAge;
+        age = rawSpectra->age;
+        nWaves = rawSpectra->nWaves; 
+        waves = rawSpectra->waves;
+        nZ = rawSpectra->nZ;
+        data = rawSpectra->data;
         intData = (double*)malloc(nZ*nAgeList*nWaves*sizeof(double));
         for(iZ = 0; iZ < nZ; report(iZ++, nZ)) 
             for(iA = 0; iA < nAgeList; ++iA) {
@@ -366,7 +358,7 @@ struct dust_params {
 };
 
 
-inline double *dust_absorption(struct dust_params *dustArgs) {
+inline double *dust_absorption(struct sed_params *rawSpectra, struct dust_params *dustArgs) {
     /* tBC: life time of the birth clound
      * nu: fraction of ISM dust absorption
      * tauUV: V-band absorption optical depth
@@ -386,9 +378,9 @@ inline double *dust_absorption(struct dust_params *dustArgs) {
     double *data = malloc(nZ*nAge*nWaves*sizeof(double));
     memcpy(data, g_intSpectra->data, nZ*nAge*nWaves*sizeof(double));
 
-    int nRawAge = g_rawSpectra->nAge;
-    double *rawAge = g_rawSpectra->age;
-    double *rawData = g_rawSpectra->data;
+    int nRawAge = rawSpectra->nAge;
+    double *rawAge = rawSpectra->age;
+    double *rawData = rawSpectra->data;
 
     int iAgeBC;
     double t0, t1;
@@ -454,13 +446,15 @@ inline double *dust_absorption(struct dust_params *dustArgs) {
 }
 
 
-void templates_working(double *fluxTmp, double z, double *filters, int nRest, int nObs, 
-                       double *LyAbsorption, struct dust_params *dustArgs) {
+void templates_working(double *fluxTmp, struct sed_params *rawSpectra, 
+                       struct dust_params *dustArgs, double *LyAbsorption,
+                       double z, double *filters, int nRest, int nObs) {
     int iA, iW, iZ, iAZ, iF;
     double *pData;
 
     int nZ = g_intSpectra->nZ;
     int nAge = g_intSpectra->nAge;
+    int nAZ = nZ*nAge;
     int nWaves = g_intSpectra->nWaves;
     double *waves = g_intSpectra->waves;
 
@@ -468,7 +462,7 @@ void templates_working(double *fluxTmp, double z, double *filters, int nRest, in
 
     //timing_start("# Process working SED templates\n");
     if (dustArgs != NULL)
-        data = dust_absorption(dustArgs);
+        data = dust_absorption(rawSpectra, dustArgs);
     else
         data = g_intSpectra->data;
 
@@ -484,7 +478,7 @@ void templates_working(double *fluxTmp, double z, double *filters, int nRest, in
         obsData = (double*)malloc(nZ*nAge*nWaves*sizeof(double));
         for(iW = 0; iW < nWaves; ++iW)
             obsWaves[iW] = waves[iW]*(1. + z);
-        for(iAZ = 0; iAZ < nZ*nAge; ++iAZ) {
+        for(iAZ = 0; iAZ < nAZ; ++iAZ) {
             pData = data + iAZ*nWaves;
             pObsData = obsData + iAZ*nWaves;
             for(iW = 0; iW < nWaves; ++iW)
@@ -492,7 +486,7 @@ void templates_working(double *fluxTmp, double z, double *filters, int nRest, in
         }
         if (LyAbsorption != NULL)
             // Add IGM absorption
-             for(iAZ = 0; iAZ < nZ*nAge; ++iAZ) {
+             for(iAZ = 0; iAZ < nAZ; ++iAZ) {
                 pObsData = obsData + iAZ*nWaves;
                 for(iW = 0; iW < nWaves; ++iW)
                     pObsData[iW] *= LyAbsorption[iW];
@@ -506,15 +500,10 @@ void templates_working(double *fluxTmp, double z, double *filters, int nRest, in
     // The first dimension refers to filters/wavelengths and ages
     // Thw last dimension refers to metallicites
     double *refSpectra = malloc(nFilter*nAge*nZ*sizeof(double));
-    // Output
-    // The first dimension refers to metallicites
-    // The second dimension refers to ages
-    // The last dimension refers to filters/wavelengths
 
     if (filters != NULL) {
         // Intgrate SED templates over filters
         // Compute fluxes in rest frame filters
-        //printf("# Compute fluxes in rest frame filters\n");
         for(iF = 0; iF < nRest; ++iF) {
             pFilter = filters + iF*nWaves;
             for(iA = 0; iA < nAge; ++iA) {
@@ -524,7 +513,7 @@ void templates_working(double *fluxTmp, double z, double *filters, int nRest, in
                                              waves, nWaves);
             }
         }
-        //printf("# Compute fluxes in observer frame filters\n");
+        // Compute fluxes in observer frame filters
         for(iF = nRest; iF < nFilter; ++iF) {
             pFilter = filters + iF*nWaves;
             for(iA = 0; iA < nAge; ++iA) {
@@ -536,13 +525,14 @@ void templates_working(double *fluxTmp, double z, double *filters, int nRest, in
         }
     }
     else {
+        // Tranpose the templates such that the last dimension is the metallicity
         if (nObs > 0) {
-            // Tranpose the templates such that the last dimension is the metallicity
             for(iZ = 0; iZ < nZ; ++iZ) 
                 for(iA = 0; iA < nAge; ++iA) {
-                    pData = obsData + (iZ*nAge + iA)*nWaves;
+                    // Use fluxes in the observer frame
+                    pObsData = obsData + (iZ*nAge + iA)*nWaves;
                     for(iW = 0; iW < nWaves; ++iW)
-                        refSpectra[(iW*nAge + iA)*nZ + iZ] = pData[iW];
+                        refSpectra[(iW*nAge + iA)*nZ + iZ] = pObsData[iW];
                 }
         }
         else {
@@ -557,9 +547,9 @@ void templates_working(double *fluxTmp, double z, double *filters, int nRest, in
 
     // Interploate SED templates along metallicities
     //printf("# Interpolate SED templates along metallicities\n");
-    double *Z = g_rawSpectra->Z;
-    int minZ = g_rawSpectra->minZ;
-    int maxZ = g_rawSpectra->maxZ;
+    double *Z = rawSpectra->Z;
+    int minZ = rawSpectra->minZ;
+    int maxZ = rawSpectra->maxZ;
     pData = fluxTmp;
     for(iZ = minZ; iZ < maxZ + 1; ++iZ)
         for(iA = 0; iA < nAge; ++iA) 
@@ -591,11 +581,13 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     double *pData;
 
     //Generate templates
-    g_rawSpectra = rawSpectra;
-    templates_time_integration(ageList, nAgeList);
+    templates_time_integration(rawSpectra, ageList, nAgeList);
 
-    int nFilter = filters == NULL ? g_intSpectra->nWaves : nObs + nRest;
-    double *fluxTmp = (double*)malloc((g_rawSpectra->maxZ + 1)*nAgeList*nFilter*sizeof(double));
+    int nFilter = filters == NULL ? rawSpectra->nWaves : nObs + nRest;
+    // The first dimension refers to metallicites
+    // The second dimension refers to ages
+    // The last dimension refers to filters/wavelengths
+    double *fluxTmp = (double*)malloc((rawSpectra->maxZ + 1)*nAgeList*nFilter*sizeof(double));
     double *flux = malloc(nFilter*sizeof(double));
     float *output = malloc(nGal*nFilter*sizeof(float));
     float *pOutput = output;
@@ -611,7 +603,8 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
 
     timing_start("# Compute magnitudes\n");
     if (dustArgs == NULL)
-        templates_working(fluxTmp, z, filters, nRest, nObs, absorption, dustArgs);
+        templates_working(fluxTmp, rawSpectra, dustArgs, absorption,
+                          z, filters, nRest, nObs);
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
         // Initialise fluxes
         for(iF = 0; iF < nFilter; ++iF)
@@ -620,7 +613,8 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
         pGalProps = galProps + iG;
         nProg = pGalProps->nNode;
         if (dustArgs != NULL)
-            templates_working(fluxTmp, z, filters, nRest, nObs, absorption, dustArgs + iG);
+            templates_working(fluxTmp, rawSpectra, dustArgs + iG, absorption, 
+                              z, filters, nRest, nObs);
         for(iP = 0; iP < nProg; ++iP) {
             pNodes = pGalProps->nodes + iP;
             sfr = pNodes->sfr;
@@ -640,6 +634,7 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     }
     free(fluxTmp);
     free(flux);
+    free_int_spectra();
 
     if (outType == 0) {
         pOutput = output;

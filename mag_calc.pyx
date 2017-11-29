@@ -609,35 +609,18 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
     return np.asarray(absorption)
 
 
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Functions about ISM absorptionb                                               #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 cdef extern from "mag_calc_cext.h":
-    struct sed_params:
-        double *Z
-        int nZ
-        int minZ
-        int maxZ
-        double *waves
-        int nWaves
-        double *age
-        int nAge
-        double *data
-
-    void free_raw_spectra()
-
-    void free_int_spectra()
-
     struct dust_params:
         double tauUV_ISM
         double nISM
         double tauUV_BC
         double nBC
         double tBC
-
-    float *composite_spectra_cext(sed_params *rawSpectra,
-                                  prop_set *galProps, int nGal,
-                                  double z, double *ageList, int nAgeList,
-                                  double *filters, double *logWaves, int nRest, int nObs,
-                                  double *absorption, dust_params *dustArgs,
-                                  int outType)
 
 
 cdef dust_params *dust_parameters(dustParams):
@@ -664,6 +647,19 @@ cdef dust_params *dust_parameters(dustParams):
 # Functions to read SED templates                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+cdef extern from "mag_calc_cext.h":
+    struct sed_params:
+        double *Z
+        int nZ
+        int minZ
+        int maxZ
+        double *waves
+        int nWaves
+        double *age
+        int nAge
+        double *data
+
+
 cdef sed_params *read_sed_templates(path):
     #===============================================================================#
     # The dictionary define by *path* should contain:                               #
@@ -704,11 +700,13 @@ def get_wavelength(path):
     """
     Return wavelengths of SED templates in a unit of angstrom
     """
-    fp = open(os.path.join(path, "sed_waves.bin"), "rb")
-    nWaves = unpack('i', fp.read(sizeof(int)))[0]
-    waves = np.array(unpack('%dd'%nWaves, fp.read(nWaves*sizeof(double))))
-    fp.close()
-    return waves
+    return np.load(os.path.join(path, "sed_waves.npy"))
+
+
+cdef void free_raw_spectra(sed_params *rawSpectra):
+    free(rawSpectra.age)
+    free(rawSpectra.waves)
+    free(rawSpectra.data)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -826,6 +824,15 @@ cdef void free_gal_props(prop_set *galProps, int nGal):
         free(galProps[iG].nodes)
     free(galProps)
  
+
+cdef extern from "mag_calc_cext.h":
+    float *composite_spectra_cext(sed_params *rawSpectra,
+                                  prop_set *galProps, int nGal,
+                                  double z, double *ageList, int nAgeList,
+                                  double *filters, double *logWaves, int nRest, int nObs,
+                                  double *absorption, dust_params *dustArgs,
+                                  int outType)
+
 
 def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
                       IGM = 'I2014', dustParams = None,
@@ -1017,7 +1024,6 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
             mvMags[...] = mvOutput
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 
-        free_int_spectra()
         free_gal_props(galProps, nGal)
         free(ageList)
         free(dustArgs)
@@ -1026,7 +1032,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
         free(cOutput)
         free(logWaves)
 
-    free_raw_spectra()
+    free_raw_spectra(rawSpectra)
     if sfhPath is None:
         free_meraxes(snapMin, snapMax)
 
