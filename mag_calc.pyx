@@ -405,6 +405,7 @@ def save_star_formation_history(fname, snapList, idxList, h,
 
 
 cdef prop_set *read_properties_by_file(name):
+    timing_start("# Read galaxies properties")
     fp = open(name, "rb")
     cdef:
         int iG
@@ -427,6 +428,7 @@ cdef prop_set *read_properties_by_file(name):
             pNodes.sfr = unpack('f', fp.read(sizeof(float)))[0]
             pNodes += 1
     fp.close()
+    timing_end()
     return galProps
 
 
@@ -644,73 +646,6 @@ cdef dust_params *dust_parameters(dustParams):
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
-# Functions to read SED templates                                               #
-#                                                                               #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "mag_calc_cext.h":
-    struct sed_params:
-        double *Z
-        int nZ
-        int minZ
-        int maxZ
-        double *waves
-        int nWaves
-        double *age
-        int nAge
-        double *data
-
-
-cdef sed_params *read_sed_templates(path):
-    #===============================================================================#
-    # The dictionary define by *path* should contain:                               #
-    #                                                                               #
-    # "sed_Z.npy" Metallicity of SED templates in a 1-D array                       #  
-    #                                                                               #
-    # "sed_waves.npy" Wavelength of SED templates in a unit of angstrom in a 1-D    # 
-    # array                                                                         #
-    #                                                                               #
-    # "sed_age.npy" Stellar age of SED templates in a unit of yr in a 1-D array     #
-    #                                                                               #
-    # "sed_flux.npy" Flux density of SED templates in a unit of erg/s/A/cm^2 in a   #
-    # 3-D array. The flux density should be normlised by the surface area of a 10   #
-    # pc sphere. The first, second and third dimensions should be metallicity,      #
-    # wavelength and stellar age respectively.                                      #
-    #===============================================================================#
-    cdef sed_params *rawSpectra = <sed_params*>malloc(sizeof(sed_params))
-    # Read metallicity range
-    Z = np.load(os.path.join(path, "sed_Z.npy"))
-    rawSpectra.Z = init_1d_double(Z)
-    rawSpectra.nZ = len(Z)
-    rawSpectra.minZ = <short>(Z.min()*1000 - 0.5)
-    rawSpectra.maxZ = <short>(Z.max()*1000 - 0.5)
-    # Read wavelength
-    waves = np.load(os.path.join(path, "sed_waves.npy"))
-    rawSpectra.waves = init_1d_double(waves)
-    rawSpectra.nWaves = len(waves)
-    # Read stellar age
-    age = np.load(os.path.join(path, "sed_age.npy"))
-    rawSpectra.age = init_1d_double(age)
-    rawSpectra.nAge = len(age)
-    # Read flux
-    rawSpectra.data = init_1d_double(np.load(os.path.join(path, "sed_flux.npy")).flatten())
-    return rawSpectra
-
-
-def get_wavelength(path):
-    """
-    Return wavelengths of SED templates in a unit of angstrom
-    """
-    return np.load(os.path.join(path, "sed_waves.npy"))
-
-
-cdef void free_raw_spectra(sed_params *rawSpectra):
-    free(rawSpectra.age)
-    free(rawSpectra.waves)
-    free(rawSpectra.data)
-
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-#                                                                               #
 # Functions to process filters                                                  #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -789,6 +724,11 @@ def beta_filters(waves):
                         [1866., 1890.],
                         [1930., 1950.],
                         [2400., 2580.]])
+    minWaves = windows[0, 0]
+    maxWaves = windows[-1, -1]
+    minWIdx = max(0, np.where(waves >= minWaves)[0][0] - 1)
+    maxWIdx = np.where(waves <= maxWaves)[0][-1] + 1
+    waves = waves[minWIdx:maxWIdx + 1]
     nFilter = len(windows)
     filters = np.zeros([nFilter + 1, len(waves)])
     for iF in xrange(nFilter):
@@ -796,7 +736,90 @@ def beta_filters(waves):
         filters[iF] /= np.trapz(filters[iF], waves)
     filters[-1] = read_filters(waves, [[1600., 100.]], [], 0.)
     centreWaves = np.append(windows.mean(axis = 1), 1600.)
-    return centreWaves, filters.flatten()
+    return centreWaves, filters.flatten(), minWIdx, maxWIdx
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Functions to read SED templates                                               #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+cdef extern from "mag_calc_cext.h":
+    struct sed_params:
+        double *Z
+        int nZ
+        int minZ
+        int maxZ
+        double *waves
+        int nWaves
+        double *age
+        int nAge
+        double *data
+
+
+cdef sed_params *read_sed_templates(path, maxAge, minWIdx, maxWIdx):
+    #===============================================================================#
+    # The dictionary define by *path* should contain:                               #
+    #                                                                               #
+    # "sed_Z.npy" Metallicity of SED templates in a 1-D array                       #  
+    #                                                                               #
+    # "sed_waves.npy" Wavelength of SED templates in a unit of angstrom in a 1-D    # 
+    # array                                                                         #
+    #                                                                               #
+    # "sed_age.npy" Stellar age of SED templates in a unit of yr in a 1-D array     #
+    #                                                                               #
+    # "sed_flux.npy" Flux density of SED templates in a unit of erg/s/A/cm^2 in a   #
+    # 3-D array. The flux density should be normlised by the surface area of a 10   #
+    # pc sphere. The first, second and third dimensions should be metallicity,      #
+    # wavelength and stellar age respectively.                                      #
+    #===============================================================================#
+    timing_start("# Read SED templates")
+    cdef sed_params *rawSpectra = <sed_params*>malloc(sizeof(sed_params))
+    # Read metallicity range
+    Z = np.load(os.path.join(path, "sed_Z.npy"))
+    rawSpectra.Z = init_1d_double(Z)
+    rawSpectra.nZ = len(Z)
+    rawSpectra.minZ = <short>(Z.min()*1000 - 0.5)
+    rawSpectra.maxZ = <short>(Z.max()*1000 - 0.5)
+    print "# Metallicity range: %.3f to %.3f"%(Z[0], Z[-1])
+    # Read wavelength
+    waves = np.load(os.path.join(path, "sed_waves.npy"))
+    print "# Wavelength range: %.1f angstrom to %.1f angstrom"%(waves[0], waves[-1])
+    if minWIdx is None:
+        minWIdx = 0
+    if maxWIdx is None:
+        maxWIdx = len(waves) - 1
+    waves = waves[minWIdx:maxWIdx + 1]
+    print "# Shrinked wavelength range: %.1f angstrom to %.1f angstrom"%(waves[0], waves[-1])
+    rawSpectra.waves = init_1d_double(waves)
+    rawSpectra.nWaves = len(waves)
+    # Read stellar age
+    age = np.load(os.path.join(path, "sed_age.npy"))
+    print "# Stellar age range: %.2f Myr to %.2f Myr"%(age[0]*1e-6, age[-1]*1e-6)
+    maxAIdx = np.where(age <= maxAge)[0][-1] + 1
+    age = age[:maxAIdx + 1]
+    print "# Shrinked stellar age range: %.2f Myr to %.2f Myr"%(age[0]*1e-6, age[-1]*1e-6)
+    rawSpectra.age = init_1d_double(age)
+    rawSpectra.nAge = len(age)
+    # Read flux
+    flux = np.load(os.path.join(path, "sed_flux.npy"))[:, minWIdx:maxWIdx + 1, :maxAIdx + 1]
+    flux = flux.flatten()
+    rawSpectra.data = init_1d_double(flux)
+    timing_end()
+    return rawSpectra
+
+
+def get_wavelength(path):
+    """
+    Return wavelengths of SED templates in a unit of angstrom
+    """
+    return np.load(os.path.join(path, "sed_waves.npy"))
+
+
+cdef void free_raw_spectra(sed_params *rawSpectra):
+    free(rawSpectra.age)
+    free(rawSpectra.waves)
+    free(rawSpectra.data)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -829,7 +852,7 @@ cdef extern from "mag_calc_cext.h":
     float *composite_spectra_cext(sed_params *rawSpectra,
                                   prop_set *galProps, int nGal,
                                   double z, double *ageList, int nAgeList,
-                                  double *filters, double *logWaves, int nRest, int nObs,
+                                  double *filters, double *logWaves, int nFlux, int nObs,
                                   double *absorption, dust_params *dustArgs,
                                   int outType)
 
@@ -896,7 +919,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
 
     waves = get_wavelength(sedPath)
     cdef:
-        sed_params *rawSpectra = read_sed_templates(sedPath)
+        sed_params *rawSpectra = NULL
         int nWaves = len(waves)
         int nGal
         int *indices
@@ -910,7 +933,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
 
         int nRest = 0
         int nObs = 0
-        int nFilter = 0
+        int nFlux = 0
         double *logWaves= NULL
         double *filters = NULL
         int cOutType = 0
@@ -957,41 +980,45 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
         if IGM == 'I2014':
             absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
         # Generate Filters
+        minWIdx = None
+        maxWIdx = None
         if outType == 'ph':
             filters = init_1d_double(read_filters(waves, restFrame, obsBands, z))
             nRest = len(restFrame)
             nObs = len(obsBands)
-            nFilter = nRest + nObs
+            nFlux = nRest + nObs
             cOutType = 0
         elif outType == 'sp':
-            nFilter = nWaves
+            nFlux = nWaves
             if obsFrame:
-                nObs = 1
+                nObs = nWaves
             cOutType = 1
         elif outType == 'UV slope':
-            centreWaves, betaFilters = beta_filters(waves)
+            centreWaves, betaFilters, minWIdx, maxWIdx = beta_filters(waves)
             logWaves = init_1d_double(np.log(centreWaves))
             filters = init_1d_double(betaFilters)
             nRest = len(centreWaves)
-            nFilter = nRest
+            nFlux = nRest
             cOutType = 2
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
+        # Read raw SED templates
+        rawSpectra = read_sed_templates(sedPath, ageList[nAgeList - 1], minWIdx, maxWIdx)
         # Compute spectra
         cOutput = composite_spectra_cext(rawSpectra,
                                          galProps, nGal, z, ageList, nAgeList,
-                                         filters, logWaves, nRest, nObs,
+                                         filters, logWaves, nFlux, nObs,
                                          absorption, dustArgs,
                                          cOutType)
         # Save the output to a numpy array
         if outType == 'UV slope':
-            mvOutput = <float[:nGal*(nFilter + nR)]>cOutput
-            output = np.hstack([np.asarray(mvOutput[nGal*nFilter:], 
+            mvOutput = <float[:nGal*(nFlux + nR)]>cOutput
+            output = np.hstack([np.asarray(mvOutput[nGal*nFlux:], 
                                            dtype = 'f4').reshape(nGal, -1),
-                                np.asarray(mvOutput[:nGal*nFilter], 
+                                np.asarray(mvOutput[:nGal*nFlux], 
                                            dtype = 'f4').reshape(nGal, -1)])
         else:
-            mvOutput = <float[:nGal*nFilter]>cOutput
+            mvOutput = <float[:nGal*nFlux]>cOutput
             output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
         # Convert apparent magnitudes to absolute magnitudes
         if outType == 'ph' and nObs > 0:
@@ -1018,9 +1045,9 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
        
         if len(snapList) == 1:
             if outType == 'UV slope':
-                mvMags = np.zeros(nGal*(nFilter + nR), dtype = 'f4')
+                mvMags = np.zeros(nGal*(nFlux + nR), dtype = 'f4')
             else:
-                mvMags = np.zeros(nGal*nFilter, dtype = 'f4')
+                mvMags = np.zeros(nGal*nFlux, dtype = 'f4')
             mvMags[...] = mvOutput
             mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
 

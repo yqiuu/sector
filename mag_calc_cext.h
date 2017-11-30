@@ -44,6 +44,6 @@ struct dust_params {
 float *composite_spectra_cext(struct sed_params *rawSpectra,
                               struct prop_set *galProps, int nGal,
                               double z, double *ageList, int nAgeList,
-                              double *filters, double *logWaves, int nRest, int nObs,
+                              double *filters, double *logWaves, int nFlux, int nObs,
                               double *absorption, struct dust_params *dustArgs,
                               int outType);
