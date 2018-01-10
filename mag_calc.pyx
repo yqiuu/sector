@@ -77,7 +77,7 @@ cdef:
     float **g_metals
     float **g_sfr
     # >>>>> New metallicity tracer
-    float *g_dTime 
+    #float *g_dTime 
     # <<<<<
 
 def read_meraxes(fname, int snapMax, h):
@@ -104,7 +104,7 @@ def read_meraxes(fname, int snapMax, h):
     global g_metals
     global g_sfr
     # >>>>> New metallicity tracer
-    global g_dTime
+    #global g_dTime
     # <<<<<
 
     g_firstProgenitor = <int**>malloc(snapNum*sizeof(int*))
@@ -115,21 +115,21 @@ def read_meraxes(fname, int snapMax, h):
     g_sfr = <float**>malloc(snapNum*sizeof(float*))
     # >>>>>  New metallicity tracer
     # Unit: Myr
-    g_dTime = init_1d_float(np.append([0], -np.diff(meraxes.io.read_snaplist(fname, h)[2])) \
-                            .astype('f4'))
+    #g_dTime = init_1d_float(np.append([0], -np.diff(meraxes.io.read_snaplist(fname, h)[2])) \
+    #                        .astype('f4'))
     # <<<<<
     meraxes.set_little_h(h = h)
     for snap in xrange(snapMax, -1, -1):
         try:
             # Copy metallicity and star formation rate to the pointers
             gals = meraxes.io.read_gals(fname, snap, 
-                                        ["StellarMass", "MetalsStellarMass", "Sfr"])
+                                        ["ColdGas", "MetalsColdGas", "Sfr"])
             # <<<<< Old Metallicity tracer
-            #metals = gals["MetalsStellarMass"]/gals["StellarMass"]
-            #metals[isnan(metals)] = 0.001
-            #g_metals[snap] = init_1d_float(metals)
+            metals = gals["MetalsColdGas"]/gals["ColdGas"]
+            metals[isnan(metals)] = 0.001
+            g_metals[snap] = init_1d_float(metals)
             # >>>>> New metallicity tracer
-            g_metals[snap] = init_1d_float(gals["MetalsStellarMass"])
+            #g_metals[snap] = init_1d_float(gals["MetalsStellarMass"])
             # <<<<<
             g_sfr[snap] = init_1d_float(gals["Sfr"])
             snapMin = snap
@@ -171,7 +171,7 @@ cdef void free_meraxes(int snapMin, int snapMax):
     free(g_metals)
     free(g_sfr)
     # >>>>>  New metallicity tracer
-    free(g_dTime) 
+    #free(g_dTime) 
     # <<<<<
 
 
@@ -215,13 +215,14 @@ cdef void trace_progenitors(int snap, int galIdx, trace_params *args):
             pNodes = args.nodes + nProg
             pNodes.index = args.tSnap - snap
             # <<<<< Old metallicity tracer
-            #pNodes.metals = args.metals[snap][galIdx]
-            #nodes[nProg].metals = galMetals[tSnap][galIdx]
+            pNodes.metals = args.metals[snap][galIdx]
             # >>>>> New metallicity tracer
-            pNodes.metals = trace_metallicity(snap, galIdx, args)
+            #pNodes.metals = trace_metallicity(snap, galIdx, args)
             # <<<<<
             pNodes.sfr = sfr
-            #printf("snap %d, metals %d, sfr %.3f\n", snap, metals, sfr)
+            #print "snap %d, galIdx %d, metals %.3f sfr %.3f\n"%(snap, galIdx, 
+            #                                                    args.metals[snap][galIdx], 
+            #                                                    sfr)
         
         trace_progenitors(snap - 1, args.firstProgenitor[snap][galIdx], args)
         trace_progenitors(snap, args.nextProgenitor[snap][galIdx], args)
@@ -245,13 +246,13 @@ cdef inline float trace_metallicity(int snap, int galIdx, trace_params *args):
                /args.sfr[snap][galIdx]/args.dTime[snap]*1e4
 
 # <<<<< Old metallicity tracer
-#cdef prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
-#                                              float **galMetals, float **galSFR,
-#                                              int tSnap, int *indices, int nGal):
-# >>>>> New metallicity tracer
 cdef prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
-                                              float **galMetals, float **galSFR, float *dTime,
+                                              float **galMetals, float **galSFR,
                                               int tSnap, int *indices, int nGal):
+# >>>>> New metallicity tracer
+#cdef prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
+#                                              float **galMetals, float **galSFR, float *dTime,
+#                                              int tSnap, int *indices, int nGal):
 # <<<<<
     cdef:
         int iG
@@ -273,7 +274,7 @@ cdef prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextP
     args.metals = galMetals
     args.sfr = galSFR
     # >>>>>  New metallicity tracer
-    args.dTime = dTime 
+    #args.dTime = dTime 
     # <<<<<
     args.tSnap = tSnap
     args.nodes = nodes
@@ -287,9 +288,9 @@ cdef prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextP
             nProg += 1
             nodes[nProg].index = 0
             # <<<<< Old metallicity tracer
-            #nodes[nProg].metals = galMetals[tSnap][galIdx]
+            nodes[nProg].metals = galMetals[tSnap][galIdx]
             # >>>>> New metallicity tracer
-            nodes[nProg].metals = trace_metallicity(tSnap, galIdx, &args)
+            #nodes[nProg].metals = trace_metallicity(tSnap, galIdx, &args)
             # <<<<<
             nodes[nProg].sfr = sfr
         args.nNode = nProg
@@ -321,15 +322,15 @@ def trace_star_formation_history(fname, snap, galIndices, h):
         int nGal = len(galIndices)
         int *indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
         # <<<<<Old Metallicity tracer
-        #prop_set *galProps = \
-        #read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, g_metals, g_sfr,
-        #                               snap, indices, nGal)
+        prop_set *galProps = \
+        read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, g_metals, g_sfr,
+                                       snap, indices, nGal)
 
         # >>>>>New metallicity tracer
-        prop_set *galProps = \
-        read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
-                                       g_metals, g_sfr, g_dTime,
-                                       snap, indices, nGal)
+        #prop_set *galProps = \
+        #read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
+        #                               g_metals, g_sfr, g_dTime,
+        #                               snap, indices, nGal)
         # <<<<<
     free(indices)
     free_meraxes(snapMin, snap)
@@ -384,12 +385,12 @@ def save_star_formation_history(fname, snapList, idxList, h,
         fp.write(pack('%di'%nGal, *galIndices))
         indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
         # <<<<< Old Metallicity tracer
-        #galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
-        #                                          g_metals, g_sfr, snap, indices, nGal)
-        # >>>>> New metallicity tracer
         galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
-                                                  g_metals, g_sfr, g_dTime,
-                                                  snap, indices, nGal)
+                                                  g_metals, g_sfr, snap, indices, nGal)
+        # >>>>> New metallicity tracer
+        #galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
+        #                                          g_metals, g_sfr, g_dTime,
+        #                                          snap, indices, nGal)
         # <<<<<
         free(indices)
         for iG in xrange(nGal):
@@ -956,12 +957,12 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
             nGal = len(galIndices)
             indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
             # <<<<< Old Metallicity tracer
-            #galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
-            #                                          g_metals, g_sfr, snap, indices, nGal)
-            # >>>>> New metallicity tracer
             galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
-                                                      g_metals, g_sfr, g_dTime,
-                                                      snap, indices, nGal)
+                                                      g_metals, g_sfr, snap, indices, nGal)
+            # >>>>> New metallicity tracer
+            #galProps = read_properties_by_progenitors(g_firstProgenitor, g_nextProgenitor, 
+            #                                          g_metals, g_sfr, g_dTime,
+            #                                          snap, indices, nGal)
             # <<<<<
             free(indices)
         else:
