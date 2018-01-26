@@ -15,7 +15,10 @@
  * Basic functions                                                             *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-clock_t g_sTime;
+struct timespec g_sTime;
+struct timespec g_sTime2;
+struct timespec g_eTime;
+struct timespec g_eTime2;
 
 
 FILE *open_file(char *fName, char *mode) {
@@ -66,20 +69,36 @@ void free_2d_double(double **p, int nRow) {
 
 
 void timing_start(char* text) {
-    g_sTime = clock();
+    clock_gettime(CLOCK_REALTIME, &g_sTime);
     printf("#**********************************************************\n");
+    printf("# ");
     printf(text);
 }
 
 void timing_end(void) {
-    float elapsedTime = (float)(clock() - g_sTime)/CLOCKS_PER_SEC;
+    clock_gettime(CLOCK_REALTIME, &g_eTime);
+    double elapsedTime = g_eTime.tv_sec - g_sTime.tv_sec \
+                         + (g_eTime.tv_nsec - g_sTime.tv_nsec)/1e9;
     int min = (int)elapsedTime/60;
     printf("# 100.0%% complete!\n");
     printf("# Done!\n");
-    printf("# Elapsed time: %d min %.5f sec\n", min, elapsedTime - min*60);
+    printf("# Elapsed time: %d min %.6f sec\n", min, elapsedTime - min*60);
     printf("#**********************************************************\n\n");
 }
 
+void timing_start_sub(void) {
+    clock_gettime(CLOCK_REALTIME, &g_sTime2);
+}
+
+void timing_end_sub(char* text) {
+     clock_gettime(CLOCK_REALTIME, &g_eTime2);
+    double elapsedTime = g_eTime2.tv_sec - g_sTime2.tv_sec \
+                         + (g_eTime2.tv_nsec - g_sTime2.tv_nsec)/1e9;
+    printf("#     ");
+    printf(text);
+    printf("#     Elapsed time: %.6f ms\n", elapsedTime*1e3);
+    clock_gettime(CLOCK_REALTIME, &g_sTime2);
+}
 
 inline int bisection_search(double a, double *x, double nX) {
     /* return idx such x[idx] <= a < x[idx + 1] 
@@ -166,14 +185,11 @@ inline double trapz_filter(double *filter, double *flux, double *waves, int nWav
     double y1;
     double I = 0.;
     for(i = 1; i < nWaves; ++i) {
-        if (filter[i] == 0.)
-            y1 = 0.;
-        else
-            y1 = filter[i]*flux[i];
-        I += (waves[i] - waves[i - 1])*(y0 + y1)/2.;
+        y1 = filter[i]*flux[i];
+        I += (waves[i] - waves[i - 1])*(y0 + y1);
         y0 = y1;
     }
-    return I;
+    return I/2.;
 }
 
 
@@ -312,7 +328,6 @@ void templates_time_integration(struct sed_params *rawSpectra,
     int nAge;
     double *age;
     int nWaves; 
-    double *waves;
     int nZ;
     double *data;
     // Spectra after integration over time
@@ -320,11 +335,10 @@ void templates_time_integration(struct sed_params *rawSpectra,
     // The last dimension refers to wavelengths
     double *intData;
     
-    timing_start("# Integrate SED templates over time\n");
+    timing_start("Integrate SED templates over time\n");
     nAge = rawSpectra->nAge;
     age = rawSpectra->age;
     nWaves = rawSpectra->nWaves; 
-    waves = rawSpectra->waves;
     nZ = rawSpectra->nZ;
     data = rawSpectra->data;
     intData = g_spectra->integrated;
@@ -535,6 +549,9 @@ inline void templates_working(struct sed_params *rawSpectra,
                                              obsWaves, nWaves);
             }
         }
+        #ifdef TIMING
+            timing_end_sub("Compute filter fluxes\n");
+        #endif
     }
     if (nObs > 0) {
         free(obsWaves);
@@ -542,7 +559,6 @@ inline void templates_working(struct sed_params *rawSpectra,
     }
 
     // Interploate SED templates along metallicities
-    //printf("# Interpolate SED templates along metallicities\n");
     double *Z = rawSpectra->Z;
     int minZ = rawSpectra->minZ;
     int maxZ = rawSpectra->maxZ;
@@ -551,7 +567,10 @@ inline void templates_working(struct sed_params *rawSpectra,
         for(iA = 0; iA < nAge; ++iA) 
             for(iF = 0; iF < nFlux; ++iF) 
                 *pData++ = interp((iZ + 1.)/1000., Z, refSpectra + (iF*nAge+ iA)*nZ, nZ);
-    free(refSpectra); 
+    free(refSpectra);
+    #ifdef TIMING 
+        timing_end_sub("Interploate templates\n");
+    #endif
 }
 
 
@@ -589,20 +608,31 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     int minZ = rawSpectra->minZ;
     int maxZ = rawSpectra->maxZ;
 
-    timing_start("# Compute magnitudes\n");
+    timing_start("Compute magnitudes\n");
     if (dustArgs == NULL)
         templates_working(rawSpectra, absorption, z, filters, nFlux, nObs);
+    #ifdef TIMING 
+        if (nGal > 10)
+            nGal = 10;
+    #endif
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
         // Initialise fluxes
         for(iF = 0; iF < nFlux; ++iF)
             flux[iF] = TOL;
-        // Sum contributions from all progentiors
-        pGalProps = galProps + iG;
-        nProg = pGalProps->nNode;
+        // Add dust absorption to SED templates
+        #ifdef TIMING
+            timing_start_sub();
+        #endif
         if (dustArgs != NULL) {
             dust_absorption(rawSpectra, dustArgs + iG);
+            #ifdef TIMING
+                timing_end_sub("Add dust absorption to SED templates\n");
+            #endif
             templates_working(rawSpectra, absorption, z, filters, nFlux, nObs);
         }
+        // Sum contributions from all progenitors
+        pGalProps = galProps + iG;
+        nProg = pGalProps->nNode;
         for(iP = 0; iP < nProg; ++iP) {
             pNodes = pGalProps->nodes + iP;
             sfr = pNodes->sfr;
@@ -615,6 +645,10 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
             for(iF = 0 ; iF < nFlux; ++iF)
                 flux[iF] += sfr*pData[iF];
         }
+        #ifdef TIMING
+            timing_end_sub("Sum contributions from all progenitors\n");
+            printf("# \n");
+        #endif
         // Store output
         for(iF = 0; iF < nFlux; ++iF) 
             *pOutput++ = (float)flux[iF];
