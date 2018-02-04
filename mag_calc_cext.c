@@ -15,6 +15,7 @@
  * Basic functions                                                             *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+short g_nThread = 1;
 struct timespec g_sTime;
 struct timespec g_sTime2;
 struct timespec g_eTime;
@@ -70,7 +71,7 @@ void free_2d_double(double **p, int nRow) {
 
 void timing_start(char* text) {
     clock_gettime(CLOCK_REALTIME, &g_sTime);
-    printf("#**********************************************************\n");
+    printf("#***********************************************************\n");
     printf("# ");
     printf(text);
 }
@@ -83,7 +84,7 @@ void timing_end(void) {
     printf("# 100.0%% complete!\n");
     printf("# Done!\n");
     printf("# Elapsed time: %d min %.6f sec\n", min, elapsedTime - min*60);
-    printf("#**********************************************************\n\n");
+    printf("#***********************************************************\n\n");
 }
 
 void timing_start_sub(void) {
@@ -380,9 +381,7 @@ inline double *dust_absorption(struct sed_params *rawSpectra, struct dust_params
      * 
      * Reference: da Cunha et al. 2008
      */
-    int iA, iW, iZ, iAZ;
-    double *pData;
-
+    
     int nRawAge = rawSpectra->nAge;
     double *rawAge = rawSpectra->age;
     double *rawData = rawSpectra->data;
@@ -397,7 +396,6 @@ inline double *dust_absorption(struct sed_params *rawSpectra, struct dust_params
 
     int iAgeBC;
     double t0, t1;
-    double ratio;
 
     double tauUV_ISM = dustArgs->tauUV_ISM;
     double nISM = dustArgs->nISM;
@@ -408,17 +406,12 @@ inline double *dust_absorption(struct sed_params *rawSpectra, struct dust_params
     double *transISM = malloc(nWaves*sizeof(double));
     double *transBC = malloc(nWaves*sizeof(double));
 
-    // Compute the optical depth of both the birth cloud and the ISM
-    for(iW = 0; iW < nWaves; ++iW) {
-        ratio = waves[iW]/1600.;
-        transISM[iW] = exp(-tauUV_ISM*pow(ratio, nISM));
-        transBC[iW] = exp(-tauUV_BC*pow(ratio, nBC));
-    }   
-
-    // Birth cloud part 
     // Find the time inverval containning the birth cloud
-    if (tBC >= age[nAge - 1])
+    if (tBC >= age[nAge - 1]) {
         iAgeBC = nAge;
+        t0 = 0.;
+        t1 = 0.;
+    }
     else if(tBC < age[0]) {
         iAgeBC = 0;
         t0 = rawAge[0];
@@ -428,33 +421,62 @@ inline double *dust_absorption(struct sed_params *rawSpectra, struct dust_params
         iAgeBC = bisection_search(tBC, age, nAge) + 1;
         t0 = age[iAgeBC - 1];
         t1 = age[iAgeBC];
-    }
-    // t_s < tBC < t_s + dt
-    if (iAgeBC < nAge)
-        for(iZ = 0; iZ < nZ; ++iZ) {
-            pData = data + (iZ*nAge + iAgeBC)*nWaves;
-            for(iW = 0; iW < nWaves; ++iW) 
-                pData[iW] = transBC[iW] \
-                            *trapz_table(rawData + (iZ*nWaves + iW)*nRawAge, 
-                                         rawAge, nRawAge, t0, tBC) \
-                            + trapz_table(rawData + (iZ*nWaves + iW)*nRawAge, 
-                                         rawAge, nRawAge, tBC, t1);
-        }
+    } 
     
-    // tBC > t_s
-    for(iA = 0; iA < iAgeBC; ++iA)
-        for(iZ = 0; iZ < nZ; ++iZ) {
-            pData = data + (iZ*nAge + iA)*nWaves;
+    // Compute the optical depth of both the birth cloud and the ISM
+    #pragma omp parallel \
+    default(none) \
+    firstprivate(nRawAge, rawAge, rawData, \
+                 nWaves, waves, nZ, nAge, age, data, \
+                 iAgeBC, t0, t1, \
+                 tauUV_ISM, nISM, tauUV_BC, nBC, tBC, \
+                 transISM, transBC) \
+    num_threads(g_nThread)
+    {
+        int iW, i, n;
+        double *pData; 
+        double ratio;        
+        
+        #pragma omp for schedule(static,1)
+        for(iW = 0; iW < nWaves; ++iW) {
+            ratio = waves[iW]/1600.;
+            transISM[iW] = exp(-tauUV_ISM*pow(ratio, nISM));
+            transBC[iW] = exp(-tauUV_BC*pow(ratio, nBC));
+        }
+        
+        // t_s < tBC < t_s + dt
+        if (iAgeBC != nAge) {
+            n = nZ*nWaves;
+            #pragma omp for schedule(static,1) 
+            for(i = 0; i < n; ++i) {
+                iW = i%nWaves;
+                pData = data + (i/nWaves*nAge + iAgeBC)*nWaves;
+                pData[iW] = transBC[iW] \
+                    *trapz_table(rawData + i*nRawAge, rawAge, nRawAge, t0, tBC) \
+                    + trapz_table(rawData + i*nRawAge, rawAge, nRawAge, tBC, t1);
+            }     
+        }
+        
+        // tBC > t_s       
+        n = iAgeBC*nZ;
+        #pragma omp for schedule(static,1) 
+        for(i = 0; i < n; ++i) {
+            pData = data + (i/iAgeBC*nAge + i%iAgeBC)*nWaves;
             for(iW = 0; iW < nWaves; ++iW) 
                 pData[iW] *= transBC[iW];
         }
-
-    // ISM part
-    for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
-        pData = data + iAZ*nWaves;
-        for(iW = 0; iW < nWaves; ++iW) 
-            pData[iW] *= transISM[iW];
+        
+        n = nAge*nZ;
+        #pragma omp for schedule(static,1) 
+        for(i = 0; i < n; ++i) {
+            pData = data + i*nWaves;
+            for(iW = 0; iW < nWaves; ++iW) 
+                pData[iW] *= transISM[iW];
+        }
     }
+
+    free(transISM);
+    free(transBC);
     
     return data;
 }
@@ -463,114 +485,130 @@ inline double *dust_absorption(struct sed_params *rawSpectra, struct dust_params
 inline void templates_working(struct sed_params *rawSpectra, 
                               double *LyAbsorption, double z, 
                               double *filters, int nFlux, int nObs) {
-    int iA, iW, iZ, iAZ, iF;
-    double *pData;
-
     int nWaves = rawSpectra->nWaves;
     double *waves = rawSpectra->waves;
     int nZ = rawSpectra->nZ;
 
     int nAge = g_spectra->nAgeList;
-    double *data = g_spectra->ready;
+    double *readyData = g_spectra->ready;
+    double *workingData = g_spectra->working;
 
-    int nRest = nFlux - nObs;
     double *obsWaves = NULL;
     double *obsData = NULL;
-    double *pObsData;
-
     if (nObs > 0) {
-        // Transform everything to observer frame
-        // Note the fluxes in this case is a function of wavelength
-        // Therefore the fluxes has a factor of 1/(1 + z)
         obsWaves = (double*)malloc(nWaves*sizeof(double));
         obsData = (double*)malloc(nZ*nAge*nWaves*sizeof(double));
-        for(iW = 0; iW < nWaves; ++iW)
-            obsWaves[iW] = waves[iW]*(1. + z);
-        for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
-            pData = data + iAZ*nWaves;
-            pObsData = obsData + iAZ*nWaves;
-            for(iW = 0; iW < nWaves; ++iW)
-                pObsData[iW] = pData[iW]/(1. + z);           
-        }
-        if (LyAbsorption != NULL)
-            // Add IGM absorption
-             for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
-                pObsData = obsData + iAZ*nWaves;
-                for(iW = 0; iW < nWaves; ++iW)
-                    pObsData[iW] *= LyAbsorption[iW];
-                }       
     }
-
-    double *pFilter;   
     // Spectra to be interploated along metallicities
     // The first dimension refers to filters/wavelengths and ages
     // Thw last dimension refers to metallicites
     double *refSpectra = malloc(nFlux*nAge*nZ*sizeof(double));
+    
+    int minZ = rawSpectra->minZ;
+    int maxZ = rawSpectra->maxZ;   
+    double *Z = rawSpectra->Z;
 
-    if (filters == NULL) {
-        // Tranpose the templates such that the last dimension is the metallicity
+    #pragma omp parallel \
+    default(none)  \
+    firstprivate(LyAbsorption, z, filters, nFlux, nObs, \
+                 nWaves, waves, nZ, nAge, \
+                 readyData, workingData, refSpectra, \
+                 obsWaves, obsData, \
+                 minZ, maxZ, Z) \
+    num_threads(g_nThread) 
+    {
+        int iA, iW, iZ, iAZ, iF, i, n;
+        int nRest = nFlux - nObs;
+        double *pData;
+        double *pObsData;
+        double *pFilter;
+        double interpZ;
+        
+        #pragma omp single
         if (nObs > 0) {
-            for(iZ = 0; iZ < nZ; ++iZ) 
-                for(iA = 0; iA < nAge; ++iA) {
-                    // Use fluxes in the observer frame
-                    pObsData = obsData + (iZ*nAge + iA)*nWaves;
+            // Transform everything to observer frame
+            // Note the fluxes in this case is a function of wavelength
+            // Therefore the fluxes has a factor of 1/(1 + z)
+            for(iW = 0; iW < nWaves; ++iW)
+                obsWaves[iW] = waves[iW]*(1. + z);
+            for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
+                pData = readyData + iAZ*nWaves;
+                pObsData = obsData + iAZ*nWaves;
+                for(iW = 0; iW < nWaves; ++iW)
+                    pObsData[iW] = pData[iW]/(1. + z);           
+            }
+            if (LyAbsorption != NULL)
+                // Add IGM absorption
+                 for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
+                    pObsData = obsData + iAZ*nWaves;
                     for(iW = 0; iW < nWaves; ++iW)
-                        refSpectra[(iW*nAge + iA)*nZ + iZ] = pObsData[iW];
-                }
+                        pObsData[iW] *= LyAbsorption[iW];
+                    }       
+        }
+
+
+        if (filters == NULL) {
+            // Tranpose the templates such that the last dimension is the metallicity
+            #pragma omp single
+            if (nObs > 0) {
+                for(iZ = 0; iZ < nZ; ++iZ) 
+                    for(iA = 0; iA < nAge; ++iA) {
+                        // Use fluxes in the observer frame
+                        pObsData = obsData + (iZ*nAge + iA)*nWaves;
+                        for(iW = 0; iW < nWaves; ++iW)
+                            refSpectra[(iW*nAge + iA)*nZ + iZ] = pObsData[iW];
+                    }
+            }
+            else {
+                for(iZ = 0; iZ < nZ; ++iZ) 
+                    for(iA = 0; iA < nAge; ++iA) {
+                        pData = readyData + (iZ*nAge + iA)*nWaves;
+                        for(iW = 0; iW < nWaves; ++iW)
+                            refSpectra[(iW*nAge + iA)*nZ + iZ] = pData[iW];
+                    }
+            }
         }
         else {
-            for(iZ = 0; iZ < nZ; ++iZ) 
-                for(iA = 0; iA < nAge; ++iA) {
-                    pData = data + (iZ*nAge + iA)*nWaves;
-                    for(iW = 0; iW < nWaves; ++iW)
-                        refSpectra[(iW*nAge + iA)*nZ + iZ] = pData[iW];
-                }
-        }
-    }
-    else {
-        // Intgrate SED templates over filters
-        // Compute fluxes in rest frame filters
-        for(iF = 0; iF < nRest; ++iF) {
-            pFilter = filters + iF*nWaves;
-            for(iA = 0; iA < nAge; ++iA) {
-                pData = refSpectra + (iF*nAge+ iA)*nZ;
+            // Intgrate SED templates over filters
+            // Compute fluxes in rest frame filters
+            n = nRest*nAge;
+            #pragma omp for schedule(static,1)
+            for(i = 0; i < n; ++i) {
+                pFilter = filters + i/nAge*nWaves;
+                pData = refSpectra + i*nZ;
                 for(iZ = 0; iZ < nZ; ++iZ)
-                    pData[iZ] = trapz_filter(pFilter, data + (iZ*nAge + iA)*nWaves,
+                    pData[iZ] = trapz_filter(pFilter, readyData + (iZ*nAge + i%nAge)*nWaves, 
                                              waves, nWaves);
-            }
-        }
-        // Compute fluxes in observer frame filters
-        for(iF = nRest; iF < nFlux; ++iF) {
-            pFilter = filters + iF*nWaves;
-            for(iA = 0; iA < nAge; ++iA) {
-                pData = refSpectra + (iF*nAge+ iA)*nZ;
+                }
+            // Compute fluxes in observer frame filters
+            n = nFlux*nAge;
+            #pragma omp for schedule(static,1)
+            for(i = nRest*nAge; i < n; ++i) {
+                pFilter = filters + i/nAge*nWaves;
+                pData = refSpectra + i*nZ;
                 for(iZ = 0; iZ < nZ; ++iZ)
-                    pData[iZ] = trapz_filter(pFilter, obsData + (iZ*nAge+ iA)*nWaves, 
+                    pData[iZ] = trapz_filter(pFilter, obsData + (iZ*nAge+ i%nAge)*nWaves, 
                                              obsWaves, nWaves);
+                }
             }
+
+        // Interploate SED templates along metallicities
+        n = (maxZ - minZ + 1)*nAge;
+        #pragma omp for schedule(static,1)
+        for(i = 0; i < n; ++i) {
+            interpZ = (minZ + i/nAge + 1.)/1000.;
+            pData = workingData + i*nFlux;
+            for(iF = 0; iF < nFlux; ++iF) 
+                pData[iF] = interp(interpZ, Z, refSpectra + (iF*nAge+ i%nAge)*nZ, nZ);
         }
-        #ifdef TIMING
-            timing_end_sub("Compute filter fluxes\n");
-        #endif
     }
+    
     if (nObs > 0) {
         free(obsWaves);
         free(obsData);
     }
-
-    // Interploate SED templates along metallicities
-    double *Z = rawSpectra->Z;
-    int minZ = rawSpectra->minZ;
-    int maxZ = rawSpectra->maxZ;
-    pData = g_spectra->working;
-    for(iZ = minZ; iZ < maxZ + 1; ++iZ)
-        for(iA = 0; iA < nAge; ++iA) 
-            for(iF = 0; iF < nFlux; ++iF) 
-                *pData++ = interp((iZ + 1.)/1000., Z, refSpectra + (iF*nAge+ iA)*nZ, nZ);
     free(refSpectra);
-    #ifdef TIMING 
-        timing_end_sub("Interploate templates\n");
-    #endif
+
 }
 
 
@@ -584,7 +622,9 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
                               double z, double *ageList, int nAgeList,
                               double *filters, double* logWaves, int nFlux, int nObs,
                               double *absorption, struct dust_params *dustArgs,
-                              int outType) {
+                              short outType, short nThread) {
+    g_nThread = nThread;
+
     int iF, iG, iP, iFG;
     double *pData;
 
@@ -611,24 +651,26 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     timing_start("Compute magnitudes\n");
     if (dustArgs == NULL)
         templates_working(rawSpectra, absorption, z, filters, nFlux, nObs);
-    #ifdef TIMING 
-        if (nGal > 10)
-            nGal = 10;
-    #endif
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
         // Initialise fluxes
         for(iF = 0; iF < nFlux; ++iF)
             flux[iF] = TOL;
         // Add dust absorption to SED templates
         #ifdef TIMING
-            timing_start_sub();
+            if (iG < 10)
+                timing_start_sub();
         #endif
         if (dustArgs != NULL) {
             dust_absorption(rawSpectra, dustArgs + iG);
             #ifdef TIMING
-                timing_end_sub("Add dust absorption to SED templates\n");
+                if (iG < 10)
+                    timing_end_sub("Add dust absorption to SED templates\n");
             #endif
             templates_working(rawSpectra, absorption, z, filters, nFlux, nObs);
+            #ifdef TIMING 
+                if (iG < 10)
+                    timing_end_sub("Process working templates\n");
+            #endif
         }
         // Sum contributions from all progenitors
         pGalProps = galProps + iG;
@@ -646,8 +688,10 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
                 flux[iF] += sfr*pData[iF];
         }
         #ifdef TIMING
-            timing_end_sub("Sum contributions from all progenitors\n");
-            printf("# \n");
+                if (iG < 10) {
+                    timing_end_sub("Sum contributions from all progenitors\n");
+                    printf("# \n");
+                }
         #endif
         // Store output
         for(iF = 0; iF < nFlux; ++iF) 
@@ -681,6 +725,7 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     int nFit = nFlux - 1;
     double *logf = malloc(nFit*sizeof(double));
 
+    timing_start_sub();
     for(iG = 0; iG < nGal; ++iG) {
         for(iF = 0; iF < nFit; ++iF) 
             logf[iF] = log(pFit[iF]);
@@ -694,7 +739,9 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
         pOutput += nR;
         //printf("Slope = %.1f\n", result.slope);
     }
-        
+    #ifdef TIMING
+        timing_end_sub("Fit UV slopes\n");
+    #endif       
     // Convert to AB magnitude
     pOutput = output + nFit;
     for(iG = 0; iG < nGal; ++iG) {

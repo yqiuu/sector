@@ -54,7 +54,7 @@ cdef double *init_1d_double(double[:] memview):
 def timing_start(text):
     global sTime
     sTime = time()
-    print "#**********************************************************"
+    print "#***********************************************************"
     print text
  
 
@@ -63,7 +63,7 @@ def timing_end():
     elapsedTime = int(time() - sTime)
     print "# Done!"
     print "# Elapsed time: %i min %i sec"%(elapsedTime/60, elapsedTime%60)
-    print "#**********************************************************\n"
+    print "#***********************************************************\n"
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -849,13 +849,13 @@ cdef void free_gal_props(prop_set *galProps, int nGal):
     free(galProps)
  
 
-cdef extern from "mag_calc_cext.h":
+cdef extern from "mag_calc_cext.h" nogil:
     float *composite_spectra_cext(sed_params *rawSpectra,
                                   prop_set *galProps, int nGal,
                                   double z, double *ageList, int nAgeList,
                                   double *filters, double *logWaves, int nFlux, int nObs,
                                   double *absorption, dust_params *dustArgs,
-                                  int outType)
+                                  short outType, short nThread)
 
 
 def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
@@ -863,7 +863,8 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
                       prefix = "mags", path = "./",
                       restFrame = [], obsBands = [],
                       obsFrame = False,
-                      sfhPath = None):
+                      sfhPath = None,
+                      nThread = 1):
     """
     Main function to calculate galaxy magnitudes
     
@@ -1010,7 +1011,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
                                          galProps, nGal, z, ageList, nAgeList,
                                          filters, logWaves, nFlux, nObs,
                                          absorption, dustArgs,
-                                         cOutType)
+                                         cOutType, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':
             mvOutput = <float[:nGal*(nFlux + nR)]>cOutput

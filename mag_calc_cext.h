@@ -46,4 +46,4 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
                               double z, double *ageList, int nAgeList,
                               double *filters, double *logWaves, int nFlux, int nObs,
                               double *absorption, struct dust_params *dustArgs,
-                              int outType);
+                              short outType, short nThread);
