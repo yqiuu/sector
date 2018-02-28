@@ -72,27 +72,26 @@ def timing_end():
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 cdef:
-    int **g_firstProgenitor
-    int **g_nextProgenitor
-    float **g_metals
-    float **g_sfr
+    int **g_firstProgenitor = NULL
+    int **g_nextProgenitor = NULL
+    float **g_metals = NULL
+    float **g_sfr = NULL
     # >>>>> New metallicity tracer
     #float *g_dTime 
     # <<<<<
 
 def read_meraxes(fname, int snapMax, h):
-    """
-    This function reads meraxes output. It is called by galaxy_mags(...).
-    Meraxes output is stored by g_firstProgenitor, g_nextProgenitor, g_metals
-    and g_sfr. They are external variables of mag_calc_cext.c
-
-    fname: path of the meraxes output
-    snapMax: start snapshot
-    h: liitle h
-
-    Return: the smallest snapshot number that contains a galaxy
-    """
-    timing_start("# Read meraxes output")
+    #=====================================================================
+    # This function reads meraxes output. It is called by galaxy_mags(...).
+    # Meraxes output is stored by g_firstProgenitor, g_nextProgenitor, g_metals
+    # and g_sfr. They are external variables of mag_calc_cext.c
+    #
+    # fname: path of the meraxes output
+    # snapMax: start snapshot
+    # h: liitle h
+    #
+    # Return: the smallest snapshot number that contains a galaxy
+    #=====================================================================
     cdef:
         int snapNum = snapMax+ 1
         int snapMin = snapMax
@@ -106,7 +105,7 @@ def read_meraxes(fname, int snapMax, h):
     # >>>>> New metallicity tracer
     #global g_dTime
     # <<<<<
-
+    timing_start("# Read meraxes output")
     g_firstProgenitor = <int**>malloc(snapNum*sizeof(int*))
     g_nextProgenitor = <int**>malloc(snapMax*sizeof(int*))
     # Unit: 1e10 M_sun (New metallicity tracer)
@@ -123,7 +122,8 @@ def read_meraxes(fname, int snapMax, h):
         try:
             # Copy metallicity and star formation rate to the pointers
             gals = meraxes.io.read_gals(fname, snap, 
-                                        ["ColdGas", "MetalsColdGas", "Sfr"])
+                                        props = ["ColdGas", "MetalsColdGas", "Sfr"])
+            print ''
             # <<<<< Old Metallicity tracer
             metals = gals["MetalsColdGas"]/gals["ColdGas"]
             metals[isnan(metals)] = 0.001
@@ -135,7 +135,7 @@ def read_meraxes(fname, int snapMax, h):
             snapMin = snap
             gals = None
         except IndexError:
-            print "# There is no galaxies in snapshot %d"%snap
+            print "# No galaxies in snapshot %d"%snap
             break;
     print "# snapMin = %d"%snapMin
     for snap in xrange(snapMin, snapNum):
@@ -152,9 +152,10 @@ def read_meraxes(fname, int snapMax, h):
 
 
 cdef void free_meraxes(int snapMin, int snapMax):
-    """
-    Function to free g_firstProgenitor, g_nextProgenitor, g_metals and g_sfr
-    """
+    #=====================================================================
+    # Function to free g_firstProgenitor, g_nextProgenitor, 
+    # g_metals, and g_sfr
+    #=====================================================================
     cdef int i
     # There is no indices in g_nextProgenitor[snapMax]
     for i in xrange(snapMin, snapMax):
@@ -314,7 +315,9 @@ cdef prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextP
 
 
 def trace_star_formation_history(fname, snap, galIndices, h):
+    #=====================================================================
     # Read galaxy properties from Meraxes outputs
+    #=====================================================================
     cdef int snapMin = read_meraxes(fname, snap, h)
     # Trace galaxy merge trees
     cdef:
@@ -354,8 +357,31 @@ def trace_star_formation_history(fname, snap, galIndices, h):
 
 
 def save_star_formation_history(fname, snapList, idxList, h, 
-                                prefix = 'sfh', path = './'):
-    # Read galaxy properties form Meraxes outputs
+                                prefix = 'sfh', outPath = './'):
+    """
+    Store star formation history to the disk.
+
+    Parameters:
+        fname: str
+            Full path to input hdf5 master file.
+
+        snapList: list
+            List of snapshots to be computed.
+
+        gals: list
+            List of arraies of galaxy indices.
+
+        h: float
+            Dimensionless Hubble constant. This is substituded into all 
+            involved functions in meraxes python package.
+
+        prefix = 'sfh': str
+            The name of the output file is 'prefix_XXX.hdf5', where XXX is
+            number of the snapshot.
+
+        outPath = './'
+            Path to the output.
+    """
     cdef:
         int iS, nSnap
         int snap, snapMax, snapMin
@@ -378,7 +404,7 @@ def save_star_formation_history(fname, snapList, idxList, h,
         props *pNodes
     for iS in xrange(nSnap):
         snap = snapList[iS]
-        fp = open(get_output_name(prefix, ".bin", snap, path), "wb")
+        fp = open(get_output_name(prefix, ".bin", snap, outPath), "wb")
         galIndices = idxList[iS]
         nGal = len(galIndices)
         fp.write(pack('i', nGal))
@@ -442,9 +468,10 @@ def read_galaxy_indices(name):
 
 
 def get_age_list(fname, snap, nAgeList, h):
-    """
-    Function to generate an array of stellar ages. It is called by galaxy_mags(...).
-    """
+    #=====================================================================
+    # Function to generate an array of stellar ages. It is called by 
+    # galaxy_mags(...).
+    #=====================================================================
     travelTime = meraxes.io.read_snaplist(fname, h)[2]*1e6 # Convert Myr to yr
     ageList = np.zeros(nAgeList)
     for i in xrange(nAgeList):
@@ -458,10 +485,10 @@ def get_age_list(fname, snap, nAgeList, h):
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 def Lyman_absorption_Fan(double[:] obsWaves, double z):
-    """
-    Depreciate function. It is original to calculate the optical depth of
-    Fan et al. 2006 
-    """
+    #=====================================================================
+    # Depreciate function. It is original to calculate the optical depth of
+    # Fan et al. 2006 
+    #=====================================================================
     cdef:
         int i
         int nWaves = obsWaves.shape[0]
@@ -485,16 +512,16 @@ def Lyman_absorption_Fan(double[:] obsWaves, double z):
 DEF NLYMAN = 39 # Inoue calculated the absorption of 40th Lyman series
 
 def Lyman_absorption_Inoue(double[:] obsWaves, double z):
-    """
-    Function to calculate the optical depth of Inoue et al. 2014
-    It is called by galaxy_mags(...).
-
-    obsWaves: wavelength in unit of angstrom
-    z: redshift
-
-    Return: transmission (dimensionless)
-    """
+    #=====================================================================
+    # Function to calculate the optical depth of Inoue et al. 2014
+    # It is called by galaxy_mags(...).
+    #
+    # obsWaves: wavelength in unit of angstrom
+    # z: redshift
+    #
+    # Return: transmission (dimensionless)
     # Reference Inoue et al. 2014
+    #=====================================================================
     cdef:
         double LymanSeries[NLYMAN]
         double LAF1[NLYMAN]
@@ -665,15 +692,18 @@ filterList = {"B435":os.path.join(inputDict, "HST_ACS_F435W.npy"),
 
 def HST_filters(filterNames):
     """
-    Quick access of transmission curves of HST filters
+    Quick access HST filters.
 
-    filterNames can be a list of filter names. (B435, V606, i775,
-    I814, z850, Y098, Y105, J125, H160, 3.6)
-    
-    Output is a 2-d list. Rows are different filters. First column
-    is the filter names. Second column is the transmission curve.
+    Parameters:
+        filterNames: list
+            Available filters: B435, V606, i775, I814, z850, Y098, Y105, 
+            J125, H160, 3.6
 
-    The output is to be passed to galaxy_mags(...)
+    Returns:
+        obsBands: list
+            For each row, the first element is the filter name, and the 
+            second element is the transmission curve. The output can be 
+            passed to composite_spectra(...)
     """
     global filterList
     obsBands = []
@@ -682,21 +712,23 @@ def HST_filters(filterNames):
     return obsBands
 
 
-def read_filters(waves, restFrame, obsBands, z):
-    """
-    This function is to generate transmission curves that has the 
-    same wavelengths with SED templates. It is called by galaxy_mags(...). 
-    The input format refer to galaxy_mags(...). 
-
-    Before integration over the filters, the fluxes must be a function of wavelength.
-    After integration over the filters, the fluxex becomes a function of frequency.
-    """
-    nRest = len(restFrame)
+def read_filters(waves, restBands, obsBands, z):
+    #=====================================================================
+    # This function is to generate transmission curves that has the 
+    # same wavelengths with SED templates. It is called by 
+    # galaxy_mags(...). The input format refer to galaxy_mags(...). 
+    #
+    # Before integration over the filters, the fluxes must be a function 
+    # of wavelength.
+    # After integration over the filters, the fluxex becomes a function 
+    # of frequency.
+    #=====================================================================
+    nRest = len(restBands)
     nObs = len(obsBands)
     filters = np.zeros([nRest + nObs, len(waves)])
     obsWaves = (1 + z)*waves
     for i in xrange(nRest):
-        centre, bandWidth = restFrame[i]
+        centre, bandWidth = restBands[i]
         lower = centre - bandWidth/2.
         upper = centre + bandWidth/2.
         filters[i] = np.interp(waves, [lower, upper], [1., 1.], left = 0., right = 0.)
@@ -711,10 +743,10 @@ def read_filters(waves, restFrame, obsBands, z):
 
 
 def beta_filters(waves):
-    """
-    return the filters defined by Calzetti et al. 1994, which is used to calculate
-    the UV continuum slope
-    """
+    #=====================================================================
+    # return the filters defined by Calzetti et al. 1994, which is used to 
+    # calculate the UV continuum slope
+    #=====================================================================
     windows = np.array([[1268., 1284.],
                         [1309., 1316.],
                         [1342., 1371.],
@@ -759,21 +791,22 @@ cdef extern from "mag_calc_cext.h":
 
 
 cdef sed_params *read_sed_templates(path, maxAge, minWIdx, maxWIdx):
-    #===============================================================================#
-    # The dictionary define by *path* should contain:                               #
-    #                                                                               #
-    # "sed_Z.npy" Metallicity of SED templates in a 1-D array                       #  
-    #                                                                               #
-    # "sed_waves.npy" Wavelength of SED templates in a unit of angstrom in a 1-D    # 
-    # array                                                                         #
-    #                                                                               #
-    # "sed_age.npy" Stellar age of SED templates in a unit of yr in a 1-D array     #
-    #                                                                               #
-    # "sed_flux.npy" Flux density of SED templates in a unit of erg/s/A/cm^2 in a   #
-    # 3-D array. The flux density should be normlised by the surface area of a 10   #
-    # pc sphere. The first, second and third dimensions should be metallicity,      #
-    # wavelength and stellar age respectively.                                      #
-    #===============================================================================#
+    #=====================================================================
+    # The dictionary define by *path* should contain:                               
+    #                                                                               
+    # "sed_Z.npy" Metallicity of SED templates in a 1-D array                         
+    #                                                                               
+    # "sed_waves.npy" Wavelength of SED templates in a unit of angstrom in 
+    # a 1-D array                                                                         
+    #                                                                               
+    # "sed_age.npy" Stellar age of SED templates in a unit of yr in a 1-D 
+    # array     
+    #                                                                               
+    # "sed_flux.npy" Flux density of SED templates in a unit of erg/s/A/cm^2 
+    # in a 3-D array. The flux density should be normlised by the surface 
+    # area of a 10 pc sphere. The first, second and third dimensions should 
+    # be metallicity, wavelength and stellar age respectively.
+    #=====================================================================
     timing_start("# Read SED templates")
     cdef sed_params *rawSpectra = <sed_params*>malloc(sizeof(sed_params))
     # Read metallicity range
@@ -811,9 +844,9 @@ cdef sed_params *read_sed_templates(path, maxAge, minWIdx, maxWIdx):
 
 
 def get_wavelength(path):
-    """
-    Return wavelengths of SED templates in a unit of angstrom
-    """
+    #=====================================================================
+    # Return wavelengths of SED templates in a unit of angstrom
+    #=====================================================================
     return np.load(os.path.join(path, "sed_waves.npy"))
 
 
@@ -829,9 +862,9 @@ cdef void free_raw_spectra(sed_params *rawSpectra):
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 def get_output_name(prefix, postfix, snap, path):
-    """
-    Function to generate the name of the output
-    """
+    #=====================================================================
+    # Function to generate the name of the output
+    #=====================================================================
     fname = prefix + "_%03d"%snap + postfix
     # Avoid repeated name
     idx = 2
@@ -858,66 +891,113 @@ cdef extern from "mag_calc_cext.h" nogil:
                                   short outType, short nThread)
 
 
-def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
+def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
                       IGM = 'I2014', dustParams = None,
-                      prefix = "mags", path = "./",
-                      restFrame = [], obsBands = [],
-                      obsFrame = False,
-                      sfhPath = None,
+                      outType = 'ph', 
+                      restBands = [[1600, 100],], obsBands = [], obsFrame = False,
+                      prefix = 'mags', outPath = './',
                       nThread = 1):
     """
-    Main function to calculate galaxy magnitudes
-    
-    fname: path of meraxes output
+    Main function to calculate galaxy magnitudes and spectra.
 
-    snapList & idxList example:
+    Parameters:
+        fname: str
+            Full path to input hdf5 master file.
 
-    snapList = [100, 78]
-    idxList = [[0, 1, 2], [100, 101]]
-    
-    The above means that the function will compute the magnitudes of galaxy 0, 1, 2
-    at snapshot 100, and galaxy 100, 101 at snapshot 78.
+        snapList: list
+            List of snapshots to be computed.
 
-    h: little h
-    Om0: matter content of the universe (necessary to calculate luminosity distance)
+        gals: list
+            Each element of the list can be an array of galaxy indices or
+            a path to stored star formation history.
 
-    restFrame example:
+        h: float
+            Dimensionless Hubble constant. This is substituded into all 
+            involved functions in meraxes python package. It is also used
+            to calculate the luminosity distance.
 
-    restFrame = [[1500., 100], [1600., 50.], [1700., 150.]]
-    
-    The above means that the function will compute three kinds rest frame magnitudes
-    They are centred at 1500 angstrom with filter width 100 anstrom, 
-    centred at 1600 angstrom with filter width 50. angstrom, 
-    and centred at 1700 angstrom with filter width 150. angstrom
+        Om0: float
+            Current day matter content of the Universe. It is used to
+            calculate the luminosity distance.
+ 
+        sedPath: str
+            Full path to SED templates.
 
-    obsBands: observed frame magnitudes to be calculated. It can be the output of 
-    HST_filters(...).
+        IGM: str
+            Method to calculate the transmission due to the Lyman
+            absorption. It can only be 'I2014'.
 
-    Return: the function will store the output as a pandas hdf file. All results are 
-    in the AB magnitude.
+        dustParams: ndarray
+            Parameters for the dust model. It should have a shape of
+            (len(snapList), len(gals), 5). The five parameters are
+            tauUV_ISM, nISM, tauUV_BC, nBC, tBC.
+
+        outType = 'ph': str
+            If 'ph', output AB magnitudes in filters given by restBands
+            and obsBands.
+
+            If 'sp', output full spectra in unit of erg/s/A/cm^2. if 
+            obsFrame is true, flux densities is normlised by the 
+            luminosity distance;otherwise, it is normlised by 10 pc.
+            Wavelengths are in a unit of A.
+
+            If 'UV slope', output slopes, normalisations, and correlation
+            cofficients by a power law fit at UV range using 10 windows 
+            given by Calzetti et al. 1994. It also outputs flux densities
+            in these windows in a unit of erg/s/A/cm^2 normlised by 10 pc.
+            Wavelengths are in a unit of A.
+
+        restBands = [[1600, 100],]: list
+            List of doublets to specify rest frame filters. The first 
+            element of the doublet is the centre wavelength, and
+            the second one is band width.
+
+        obsBands = []: list
+            List of doublets to specify observer frame filters. The first
+            element of the doublet is the filter name, and the second one
+            is a 2-D array. The first row of the array is the wavelength
+            in a unit of A, and the second row gives the transmission 
+            curve.
+
+        obsFrame = False: bool
+            See outType.
+
+        prefix = 'mags': str
+            The name of the output file is 'prefix_XXX.hdf5', where XXX is
+            number of the snapshot.
+
+        outPath = './'
+            Path to the output.
+
+        nThread = 1: int
+            Number of threads used by the OpenMp.
+
+    Returns: 
+        mags: pandas.DataFrame
+            If snapList is a scalar, it returns the output according to 
+            outType.
     """
     cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
    
     cdef:
         int i, iG
         int snap, nSnap
-        int sanpMin, snapMax
+        int sanpMin = 1
+        int snapMax
 
     if isscalar(snapList):
         snapMax = snapList
         nSnap = 1
         snapList = [snapList]
-        idxList = [idxList]
-        if sfhPath is not None:
-            sfhPath = [sfhPath]
+        gals = [gals]
     else:
         snapMax = max(snapList)
         nSnap = len(snapList)
 
-    if sfhPath is None:
-        snapMin = read_meraxes(fname, snapMax, h)
-    else:
+    if type(gals[0]) is str:
         snapMin = 1
+    else:
+        snapMin = read_meraxes(fname, snapMax, h)
 
     waves = get_wavelength(sedPath)
     cdef:
@@ -953,8 +1033,12 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
     for i in xrange(nSnap):
         snap = snapList[i]
         # Read star formation rates and metallcities form galaxy merger trees
-        if sfhPath is None:
-            galIndices = idxList[i]
+        if type(gals[0]) is str:
+            galIndices = read_galaxy_indices(gals[i])
+            nGal = len(galIndices)
+            galProps = read_properties_by_file(gals[i])
+        else:
+            galIndices = gals[i]
             nGal = len(galIndices)
             indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
             # <<<<< Old Metallicity tracer
@@ -966,10 +1050,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
             #                                          snap, indices, nGal)
             # <<<<<
             free(indices)
-        else:
-            galIndices = read_galaxy_indices(sfhPath[i])
-            nGal = len(galIndices)
-            galProps = read_properties_by_file(sfhPath[i])
+
         # Read look back time
         nAgeList = snap - snapMin + 1
         ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
@@ -985,8 +1066,8 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
         minWIdx = None
         maxWIdx = None
         if outType == 'ph':
-            filters = init_1d_double(read_filters(waves, restFrame, obsBands, z))
-            nRest = len(restFrame)
+            filters = init_1d_double(read_filters(waves, restBands, obsBands, z))
+            nRest = len(restBands)
             nObs = len(obsBands)
             nFlux = nRest + nObs
             cOutType = 0
@@ -1033,7 +1114,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
         if outType == 'ph':
             columns = []
             for i in xrange(nRest):
-                columns.append("M%d"%restFrame[i][0])
+                columns.append("M%d-%d"%(restBands[i][0], restBands[i][1]))
             for i in xrange(nObs):
                 columns.append(obsBands[i][0])
         elif outType == 'sp':
@@ -1043,7 +1124,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
             columns[-1] = "M1600"           
         # Save the output to the disk
         DataFrame(output, index = galIndices, columns = columns).\
-        to_hdf(get_output_name(prefix, ".hdf5", snap, path), "w")
+        to_hdf(get_output_name(prefix, ".hdf5", snap, outPath), "w")
        
         if len(snapList) == 1:
             if outType == 'UV slope':
@@ -1062,7 +1143,7 @@ def composite_spectra(fname, snapList, idxList, h, Om0, outType, sedPath,
         free(logWaves)
 
     free_raw_spectra(rawSpectra)
-    if sfhPath is None:
+    if type(gals[0]) is not str:
         free_meraxes(snapMin, snapMax)
 
     if len(snapList) == 1:
@@ -1103,18 +1184,18 @@ cdef dust_equation(double obsMag, double slope, double inter,
 @boundscheck(False)
 @wraparound(False)
 def dust_extinction(M1600, double z, double scatter):
-    """
-    Calculate the dust extinction at rest frame 1600 angstrom
-
-    M1600: rest frame 1600 angstrom magnitudes. It can be an array.
-    z: redshift
-
-    Returns: dust extinction at rest frame 1600 angstrom
-             M1600_obs = M1600 + A1600,
-             where M1600_obs is the dust attenuated magnitudes
-    """
+    #=====================================================================
+    # Calculate the dust extinction at rest frame 1600 angstrom
+    #
+    # M1600: rest frame 1600 angstrom magnitudes. It can be an array.
+    # z: redshift
+    #
+    # Returns: dust extinction at rest frame 1600 angstrom
+    #          M1600_obs = M1600 + A1600,
+    #          where M1600_obs is the dust attenuated magnitudes
     # Reference Mason et al. 2015, equation 4
     #           Bouwens 2014 et al. 2014, Table 3
+    #=====================================================================
 
     cdef:
         int iM
@@ -1163,12 +1244,12 @@ def dust_extinction(M1600, double z, double scatter):
 
 @vectorize
 def reddening_curve(lam):
-    """
-    Function of the reddening curve of Calzetti et al. 2000
-    
-    lam: wavelengths in a unit of angstrom
-    """
+    #=====================================================================
+    # Function of the reddening curve of Calzetti et al. 2000
+    #
+    # lam: wavelengths in a unit of angstrom
     # Reference Calzetti et al. 2000, Liu et al. 2016
+    #=====================================================================
     lam *= 1e-4 # Convert angstrom to mircometer
     if lam < .12 or lam > 2.2:
         warn("Warning: wavelength is beyond the range of the reddening curve")
@@ -1184,16 +1265,27 @@ def reddening_curve(lam):
 
 def reddening(waves, M1600, z, scatter = 0.):
     """
-    Function to add reddening
+    Compute the dust extinction at given wavelengths.
+    
+    Parameters:
+        waves: array_like
+            Wavelength in a unit of angstrom
 
-    waves: wavelength in a unit of angstrom
-    M1600: rest frame 1600 angstrom magnitudes.
-    z: redshift
+        M1600: array_like
+            Magnitudes at rest-frame 1600 angstrom
+        
+        z: float
+            redshift
 
-    Returns: the output can be directly added to intrinsic magnitudes
+        scatter = 0.: float
+            Add a Gaussian scatter to the Meurer relation. If 0, no
+            scatter is applied
+
+    Returns:
+        A: array_like
+            Dust extinction at given wavelengths, which is additive to AB
+            magnitudes. It has a dimension of (len(M1600), len(waves))
     """
-    # waves must be in a unit of angstrom
-    # The reddening curve is normalised by the value at 1600 A
     A1600 = dust_extinction(M1600, z, scatter)
     if isscalar(waves):
         return reddening_curve(waves)/reddening_curve(1600.)*A1600
