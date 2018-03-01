@@ -1,9 +1,8 @@
-import os
+import os, sys
 from warnings import warn
 from time import time
 from struct import pack, unpack
 
-from cython import boundscheck, wraparound
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 from libc.math cimport exp, log
@@ -15,7 +14,6 @@ from pandas import DataFrame
 from astropy.cosmology import FlatLambdaCDM
 from astropy import units as u
 from dragons import meraxes
-
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
@@ -361,26 +359,22 @@ def save_star_formation_history(fname, snapList, idxList, h,
     """
     Store star formation history to the disk.
 
-    Parameters:
-        fname: str
-            Full path to input hdf5 master file.
-
-        snapList: list
-            List of snapshots to be computed.
-
-        gals: list
-            List of arraies of galaxy indices.
-
-        h: float
-            Dimensionless Hubble constant. This is substituded into all 
-            involved functions in meraxes python package.
-
-        prefix = 'sfh': str
-            The name of the output file is 'prefix_XXX.hdf5', where XXX is
-            number of the snapshot.
-
-        outPath = './'
-            Path to the output.
+    Parameters
+    ----------
+    fname: str
+        Full path to input hdf5 master file.
+    snapList: list
+        List of snapshots to be computed.
+    gals: list
+        List of arraies of galaxy indices.
+    h: float
+        Dimensionless Hubble constant. This is substituded into all 
+        involved functions in meraxes python package.
+    prefix = 'sfh': str
+        The name of the output file is 'prefix_XXX.hdf5', where XXX is
+        number of the snapshot.
+    outPath = './'
+        Path to the output.
     """
     cdef:
         int iS, nSnap
@@ -677,38 +671,39 @@ cdef dust_params *dust_parameters(dustParams):
 # Functions to process filters                                                  #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-global inputDict
-inputDict = "/lustre/projects/p113_astro/yqiu/magcalc/input/"
-filterList = {"B435":os.path.join(inputDict, "HST_ACS_F435W.npy"), 
-              "V606":os.path.join(inputDict, "HST_ACS_F606W.npy"), 
-              "i775":os.path.join(inputDict, "HST_ACS_F775W.npy"), 
-              "I814":os.path.join(inputDict, "HST_ACS_F814W.npy"), 
-              "z850":os.path.join(inputDict, "HST_ACS_F850LP.npy"), 
-              "Y098":os.path.join(inputDict, "HST_IR_F098M.npy"), 
-              "Y105":os.path.join(inputDict, "HST_IR_F105W.npy"), 
-              "J125":os.path.join(inputDict, "HST_IR_F125W.npy"), 
-              "H160":os.path.join(inputDict, "HST_IR_F160W.npy"), 
-              "3.6":os.path.join(inputDict,  "HST_IRAC_3.6.npy")}
+#filterList = {"B435":os.path.join(packageDir, "filters", "HST_ACS_F435W.npy"), 
+#              "V606":os.path.join(packageDir, "filters", "HST_ACS_F606W.npy"), 
+#              "i775":os.path.join(packageDir, "filters", "HST_ACS_F775W.npy"), 
+#              "I814":os.path.join(packageDir, "filters", "HST_ACS_F814W.npy"), 
+#              "z850":os.path.join(packageDir, "filters", "HST_ACS_F850LP.npy"), 
+#              "Y098":os.path.join(packageDir, "filters", "HST_IR_F098M.npy"), 
+#              "Y105":os.path.join(packageDir, "filters", "HST_IR_F105W.npy"), 
+#              "J125":os.path.join(packageDir, "filters", "HST_IR_F125W.npy"), 
+#              "H160":os.path.join(packageDir, "filters", "HST_IR_F160W.npy"), 
+#              "3.6":os.path.join(packageDir, "filters", "HST_IRAC_3.6.npy")}
+
+from filters import filterDict
 
 def HST_filters(filterNames):
     """
     Quick access HST filters.
 
-    Parameters:
-        filterNames: list
-            Available filters: B435, V606, i775, I814, z850, Y098, Y105, 
-            J125, H160, 3.6
+    Parameters
+    ----------
+    filterNames: list
+        Available filters: B435, V606, i775, I814, z850, Y098, Y105, 
+        J125, H160, 3.6.
 
-    Returns:
-        obsBands: list
-            For each row, the first element is the filter name, and the 
-            second element is the transmission curve. The output can be 
-            passed to composite_spectra(...)
+    Returns
+    -------
+    obsBands: list
+        For each row, the first element is the filter name, and the 
+        second element is the transmission curve. The output can be 
+        passed to composite_spectra(...).
     """
-    global filterList
     obsBands = []
     for name in filterNames:
-        obsBands.append([name, np.load(filterList[name])])
+        obsBands.append([name, np.load(filterDict[name])])
     return obsBands
 
 
@@ -900,82 +895,70 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
     """
     Main function to calculate galaxy magnitudes and spectra.
 
-    Parameters:
-        fname: str
-            Full path to input hdf5 master file.
+    Parameters
+    ----------
+    fname: str
+        Full path to input hdf5 master file.
+    snapList: list
+        List of snapshots to be computed.
+    gals: list
+        Each element of the list can be an array of galaxy indices or
+        a path to stored star formation history.
+    h: float
+        Dimensionless Hubble constant. This is substituded into all 
+        involved functions in meraxes python package. It is also used
+        to calculate the luminosity distance.
+    Om0: float
+        Current day matter content of the Universe. It is used to
+        calculate the luminosity distance.
+    sedPath: str
+        Full path to SED templates.
+    IGM: str
+        Method to calculate the transmission due to the Lyman
+        absorption. It can only be 'I2014'.
+    dustParams: ndarray
+        Parameters for the dust model. It should have a shape of
+        (len(snapList), len(gals), 5). The five parameters are
+        tauUV_ISM, nISM, tauUV_BC, nBC, tBC.
+    outType = 'ph': str
+        If 'ph', output AB magnitudes in filters given by restBands
+        and obsBands.
 
-        snapList: list
-            List of snapshots to be computed.
+        If 'sp', output full spectra in unit of erg/s/A/cm^2. if 
+        obsFrame is true, flux densities is normlised by the 
+        luminosity distance;otherwise, it is normlised by 10 pc.
+        Wavelengths are in a unit of A.
 
-        gals: list
-            Each element of the list can be an array of galaxy indices or
-            a path to stored star formation history.
+        If 'UV slope', output slopes, normalisations, and correlation
+        cofficients by a power law fit at UV range using 10 windows 
+        given by Calzetti et al. 1994. It also outputs flux densities
+        in these windows in a unit of erg/s/A/cm^2 normlised by 10 pc.
+        Wavelengths are in a unit of A.
+    restBands = [[1600, 100],]: list
+        List of doublets to specify rest frame filters. The first 
+        element of the doublet is the centre wavelength, and
+        the second one is band width.
+    obsBands = []: list
+        List of doublets to specify observer frame filters. The first
+        element of the doublet is the filter name, and the second one
+        is a 2-D array. The first row of the array is the wavelength
+        in a unit of A, and the second row gives the transmission 
+        curve.
+    obsFrame = False: bool
+        See outType.
+    prefix = 'mags': str
+        The name of the output file is 'prefix_XXX.hdf5', where XXX is
+        number of the snapshot.
+    outPath = './'
+        Path to the output.
+    nThread = 1: int
+        Number of threads used by the OpenMp.
 
-        h: float
-            Dimensionless Hubble constant. This is substituded into all 
-            involved functions in meraxes python package. It is also used
-            to calculate the luminosity distance.
-
-        Om0: float
-            Current day matter content of the Universe. It is used to
-            calculate the luminosity distance.
- 
-        sedPath: str
-            Full path to SED templates.
-
-        IGM: str
-            Method to calculate the transmission due to the Lyman
-            absorption. It can only be 'I2014'.
-
-        dustParams: ndarray
-            Parameters for the dust model. It should have a shape of
-            (len(snapList), len(gals), 5). The five parameters are
-            tauUV_ISM, nISM, tauUV_BC, nBC, tBC.
-
-        outType = 'ph': str
-            If 'ph', output AB magnitudes in filters given by restBands
-            and obsBands.
-
-            If 'sp', output full spectra in unit of erg/s/A/cm^2. if 
-            obsFrame is true, flux densities is normlised by the 
-            luminosity distance;otherwise, it is normlised by 10 pc.
-            Wavelengths are in a unit of A.
-
-            If 'UV slope', output slopes, normalisations, and correlation
-            cofficients by a power law fit at UV range using 10 windows 
-            given by Calzetti et al. 1994. It also outputs flux densities
-            in these windows in a unit of erg/s/A/cm^2 normlised by 10 pc.
-            Wavelengths are in a unit of A.
-
-        restBands = [[1600, 100],]: list
-            List of doublets to specify rest frame filters. The first 
-            element of the doublet is the centre wavelength, and
-            the second one is band width.
-
-        obsBands = []: list
-            List of doublets to specify observer frame filters. The first
-            element of the doublet is the filter name, and the second one
-            is a 2-D array. The first row of the array is the wavelength
-            in a unit of A, and the second row gives the transmission 
-            curve.
-
-        obsFrame = False: bool
-            See outType.
-
-        prefix = 'mags': str
-            The name of the output file is 'prefix_XXX.hdf5', where XXX is
-            number of the snapshot.
-
-        outPath = './'
-            Path to the output.
-
-        nThread = 1: int
-            Number of threads used by the OpenMp.
-
-    Returns: 
-        mags: pandas.DataFrame
-            If snapList is a scalar, it returns the output according to 
-            outType.
+    Returns
+    -------
+    mags: pandas.DataFrame
+        If snapList is a scalar, it returns the output according to 
+        outType.
     """
     cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
    
@@ -1181,8 +1164,6 @@ cdef dust_equation(double obsMag, double slope, double inter,
            - (4.43 + 1.99*(beta_MUV(obsMag, slope, inter) + noise))
 
 
-@boundscheck(False)
-@wraparound(False)
 def dust_extinction(M1600, double z, double scatter):
     #=====================================================================
     # Calculate the dust extinction at rest frame 1600 angstrom
@@ -1267,24 +1248,23 @@ def reddening(waves, M1600, z, scatter = 0.):
     """
     Compute the dust extinction at given wavelengths.
     
-    Parameters:
-        waves: array_like
-            Wavelength in a unit of angstrom
+    Parameters
+    ----------
+    waves: array_like
+        Wavelength in a unit of angstrom.
+    M1600: array_like
+        Magnitudes at rest-frame 1600 angstrom.
+    z: float
+        redshift.
+    scatter = 0.: float
+        Add a Gaussian scatter to the Meurer relation. If 0, no
+        scatter is applied.
 
-        M1600: array_like
-            Magnitudes at rest-frame 1600 angstrom
-        
-        z: float
-            redshift
-
-        scatter = 0.: float
-            Add a Gaussian scatter to the Meurer relation. If 0, no
-            scatter is applied
-
-    Returns:
-        A: array_like
-            Dust extinction at given wavelengths, which is additive to AB
-            magnitudes. It has a dimension of (len(M1600), len(waves))
+    Returns
+    -------
+    A: array_like
+        Dust extinction at given wavelengths, which is additive to AB
+        magnitudes. It has a dimension of (len(M1600), len(waves)).
     """
     A1600 = dust_extinction(M1600, z, scatter)
     if isscalar(waves):

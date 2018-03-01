@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # magcalc documentation build configuration file, created by
-# sphinx-quickstart on Wed Feb 28 15:03:49 2018.
+# sphinx-quickstart on Fri Mar  2 08:12:09 2018.
 #
 # This file is execfile()d with the current directory set to its
 # containing dir.
@@ -18,8 +18,7 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('..'))
-#os.path.abspath('..')
+sys.path.insert(0, '/home/yqiu/repository/magcalc/')
 
 # -- General configuration ------------------------------------------------
 
@@ -32,6 +31,8 @@ sys.path.insert(0, os.path.abspath('..'))
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.githubpages',
+    'numpydoc'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
