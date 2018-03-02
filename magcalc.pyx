@@ -59,9 +59,10 @@ def timing_start(text):
 
 def timing_end():
     global sTime
-    elapsedTime = int(time() - sTime)
+    elapsedTime = time() - sTime
+    minute = int(elapsedTime)/60
     print "# Done!"
-    print "# Elapsed time: %i min %i sec"%(elapsedTime/60, elapsedTime%60)
+    print "# Elapsed time: %i min %.6f sec"%(minute, elapsedTime - minute*60)
     print "#***********************************************************\n"
 
 
