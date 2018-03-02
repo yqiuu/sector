@@ -35,11 +35,14 @@ FILE *open_file(char *fName, char *mode) {
 
 
 inline void report(int i, int tot) {
-    int n = tot > 10 ? tot/10 : 1;
-    if (i%n == 0) {
-        printf("# %5.1f%% complete!\r", 100.*(i + 1)/tot);      
-        fflush(stdout);
-    }
+    #ifdef TIMING
+        int n = tot > 10 ? tot/10 : 1;
+        if (i%n == 0) {
+            printf("# %5.1f%% complete!\r", 100.*(i + 1)/tot);      
+            fflush(stdout);
+        }
+    #endif
+    ;
 }
 
 
@@ -80,10 +83,10 @@ void timing_end(void) {
     clock_gettime(CLOCK_REALTIME, &g_eTime);
     double elapsedTime = g_eTime.tv_sec - g_sTime.tv_sec \
                          + (g_eTime.tv_nsec - g_sTime.tv_nsec)/1e9;
-    int min = (int)elapsedTime/60;
+    int minute = (int)elapsedTime/60;
     printf("# 100.0%% complete!\n");
     printf("# Done!\n");
-    printf("# Elapsed time: %d min %.6f sec\n", min, elapsedTime - min*60);
+    printf("# Elapsed time: %d min %.6f sec\n", minute, elapsedTime - minute*60);
     printf("#***********************************************************\n\n");
 }
 
@@ -336,14 +339,16 @@ void templates_time_integration(struct sed_params *rawSpectra,
     // The last dimension refers to wavelengths
     double *intData;
     
-    timing_start("Integrate SED templates over time\n");
+    #ifdef TIMING
+        timing_start("Integrate SED templates over time\n");
+    #endif
     nAge = rawSpectra->nAge;
     age = rawSpectra->age;
     nWaves = rawSpectra->nWaves; 
     nZ = rawSpectra->nZ;
     data = rawSpectra->data;
     intData = g_spectra->integrated;
-    for(iZ = 0; iZ < nZ; report(iZ++, nZ)) 
+    for(iZ = 0; iZ < nZ; ++iZ) 
         for(iA = 0; iA < nAgeList; ++iA) {
             pData = intData + (iZ*nAgeList + iA)*nWaves;
             for(iW = 0; iW < nWaves; ++iW) {
@@ -359,7 +364,9 @@ void templates_time_integration(struct sed_params *rawSpectra,
             }
         }
     memcpy(g_spectra->ready, g_spectra->integrated, nZ*nAgeList*nWaves*sizeof(double));
-    timing_end();
+    #ifdef TIMING
+        timing_end();
+    #endif
 }
  
 
@@ -648,7 +655,9 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     int minZ = rawSpectra->minZ;
     int maxZ = rawSpectra->maxZ;
 
-    timing_start("Compute magnitudes\n");
+    #ifdef TIMING
+        timing_start("Compute magnitudes\n");
+    #endif
     if (dustArgs == NULL)
         templates_working(rawSpectra, absorption, z, filters, nFlux, nObs);
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
@@ -706,11 +715,15 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
             *pOutput = M_AB(*pOutput);
             ++pOutput;
         }
-        timing_end();
+        #ifdef TIMING
+            timing_end();
+        #endif
         return output;
     }
     else if (outType == 1) {
-        timing_end();   
+        #ifdef TIMING
+            timing_end();
+        #endif
         return output;
     }
     
@@ -725,7 +738,9 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     int nFit = nFlux - 1;
     double *logf = malloc(nFit*sizeof(double));
 
-    timing_start_sub();
+    #ifdef TIMING
+        timing_start_sub();
+    #endif
     for(iG = 0; iG < nGal; ++iG) {
         for(iF = 0; iF < nFit; ++iF) 
             logf[iF] = log(pFit[iF]);
@@ -749,7 +764,9 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
         pOutput += nFlux;
     }
 
-    timing_end();
+    #ifdef TIMING
+        timing_end();
+    #endif
     return output;
 }
 
