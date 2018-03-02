@@ -371,11 +371,11 @@ def save_star_formation_history(fname, snapList, idxList, h,
         List of arraies of galaxy indices.
     h: float
         Dimensionless Hubble constant. This is substituded into all 
-        involved functions in meraxes python package.
-    prefix = 'sfh': str
+        involved functions in ``meraxes`` python package.
+    prefix: str
         The name of the output file is 'prefix_XXX.hdf5', where XXX is
         number of the snapshot.
-    outPath = './'
+    outPath: str
         Path to the output.
     """
     cdef:
@@ -690,7 +690,7 @@ def HST_filters(filterNames):
     obsBands: list
         For each row, the first element is the filter name, and the 
         second element is the transmission curve. The output can be 
-        passed to composite_spectra(...).
+        passed to ``composite_spectra``.
     """
     obsBands = []
     for name in filterNames:
@@ -904,52 +904,62 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         calculate the luminosity distance.
     sedPath: str
         Full path to SED templates.
-    IGM = 'I2014': str
+    IGM: str
         Method to calculate the transmission due to the Lyman
-        absorption. It can only be 'I2014'.
-    dustParams = None: ndarray
+        absorption. It can only be 'I2014'. It is only applicable
+        to observer frame quantities.
+    dustParams: ndarray
         Parameters for the dust model. It should have a shape of
-        (len(snapList), len(gals), 5). The five parameters are
+        ``(len(snapList), len(gals), 5)``. The five parameters are
         tauUV_ISM, nISM, tauUV_BC, nBC, tBC.
-    outType = 'ph': str
+    outTypestr
         If 'ph', output AB magnitudes in filters given by restBands
         and obsBands.
 
-        If 'sp', output full spectra in unit of erg/s/A/cm^2. if 
-        obsFrame is true, flux densities is normlised by the 
-        luminosity distance;otherwise, it is normlised by 10 pc.
-        Wavelengths are in a unit of A.
+        If 'sp', output full spectra in unit of 
+        :math:`erg/s/\\unicode{x212B}/cm^2`. if obsFrame is true, flux 
+        densities is normlised by the luminosity distance;otherwise, 
+        it is normlised by :math:`10 pc`. Wavelengths are in a unit of 
+        :math:`\\unicode{x212B}`.
 
         If 'UV slope', output slopes, normalisations, and correlation
         cofficients by a power law fit at UV range using 10 windows 
         given by Calzetti et al. 1994. It also outputs flux densities
-        in these windows in a unit of erg/s/A/cm^2 normlised by 10 pc.
-        Wavelengths are in a unit of A.
-    restBands = [[1600, 100],]: list
+        in these windows in a unit of :math:`erg/s/\\unicode{x212B}/cm^2`
+        normlised by :math:`10 pc`. Wavelengths are in a unit of 
+        :math:`\\unicode{x212B}`.
+    restBands: list
         List of doublets to specify rest frame filters. The first 
         element of the doublet is the centre wavelength, and
         the second one is band width.
-    obsBands = []: list
+    obsBands: list
         List of doublets to specify observer frame filters. The first
         element of the doublet is the filter name, and the second one
         is a 2-D array. The first row of the array is the wavelength
-        in a unit of A, and the second row gives the transmission 
-        curve.
-    obsFrame = False: bool
-        See outType.
-    prefix = 'mags': str
+        in a unit of :math:`\\unicode{x212B}`, and the second row gives 
+        the transmission curve.
+    obsFrame: bool
+        See ``outType``.
+    prefix: str
         The name of the output file is 'prefix_XXX.hdf5', where XXX is
         number of the snapshot.
-    outPath = './'
+    outPath: str
         Path to the output.
-    nThread = 1: int
+    nThread: int
         Number of threads used by the OpenMp.
 
     Returns
     -------
     mags: pandas.DataFrame
-        If snapList is a scalar, it returns the output according to 
-        outType.
+        If ``snapList`` is a scalar, it returns the output according to 
+        ``outType``.
+
+        This function always generates at least one output in the
+        directory defined by ``outPath``. The output, whose name is
+        defined by ``prefix``, are a ``pandas.DataFrame`` object. Its 
+        ``index`` is the same with that given in the input. In additon, 
+        this function never overwrites an output which has the same name;
+        instead it generates an output with a different name.
     """
     cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
    
@@ -1236,12 +1246,12 @@ def reddening(waves, M1600, z, scatter = 0.):
     Parameters
     ----------
     waves: array_like
-        Wavelength in a unit of angstrom.
+        Wavelength in a unit of :math:`\\unicode{x212B}`.
     M1600: array_like
-        Magnitudes at rest-frame 1600 angstrom.
+        Magnitudes at rest-frame 1600 :math:`\\unicode{x212B}`.
     z: float
         redshift.
-    scatter = 0.: float
+    scatter: float
         Add a Gaussian scatter to the Meurer relation. If 0, no
         scatter is applied.
 
@@ -1249,7 +1259,7 @@ def reddening(waves, M1600, z, scatter = 0.):
     -------
     A: array_like
         Dust extinction at given wavelengths, which is additive to AB
-        magnitudes. It has a dimension of (len(M1600), len(waves)).
+        magnitudes. It has a dimension of ``(len(M1600), len(waves))``.
     """
     A1600 = dust_extinction(M1600, z, scatter)
     if isscalar(waves):

@@ -18,7 +18,7 @@
 #
 import os
 import sys
-sys.path.insert(0, '/home/yqiu/repository/magcalc/')
+sys.path.insert(0, os.path.abspath('..'))
 
 # -- General configuration ------------------------------------------------
 
@@ -31,6 +31,7 @@ sys.path.insert(0, '/home/yqiu/repository/magcalc/')
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.mathjax',
     'sphinx.ext.githubpages',
     'numpydoc'
 ]
