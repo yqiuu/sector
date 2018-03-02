@@ -672,17 +672,6 @@ cdef dust_params *dust_parameters(dustParams):
 # Functions to process filters                                                  #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-#filterList = {"B435":os.path.join(packageDir, "filters", "HST_ACS_F435W.npy"), 
-#              "V606":os.path.join(packageDir, "filters", "HST_ACS_F606W.npy"), 
-#              "i775":os.path.join(packageDir, "filters", "HST_ACS_F775W.npy"), 
-#              "I814":os.path.join(packageDir, "filters", "HST_ACS_F814W.npy"), 
-#              "z850":os.path.join(packageDir, "filters", "HST_ACS_F850LP.npy"), 
-#              "Y098":os.path.join(packageDir, "filters", "HST_IR_F098M.npy"), 
-#              "Y105":os.path.join(packageDir, "filters", "HST_IR_F105W.npy"), 
-#              "J125":os.path.join(packageDir, "filters", "HST_IR_F125W.npy"), 
-#              "H160":os.path.join(packageDir, "filters", "HST_IR_F160W.npy"), 
-#              "3.6":os.path.join(packageDir, "filters", "HST_IRAC_3.6.npy")}
-
 from filters import filterDict
 
 def HST_filters(filterNames):
@@ -914,10 +903,10 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         calculate the luminosity distance.
     sedPath: str
         Full path to SED templates.
-    IGM: str
+    IGM = 'I2014': str
         Method to calculate the transmission due to the Lyman
         absorption. It can only be 'I2014'.
-    dustParams: ndarray
+    dustParams = None: ndarray
         Parameters for the dust model. It should have a shape of
         (len(snapList), len(gals), 5). The five parameters are
         tauUV_ISM, nISM, tauUV_BC, nBC, tBC.
