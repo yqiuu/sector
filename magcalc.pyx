@@ -2,6 +2,7 @@ import os, sys
 from warnings import warn
 from time import time
 from struct import pack, unpack
+from copy import deepcopy
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
@@ -1011,7 +1012,6 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
         float *cOutput 
         float[:] mvOutput
-        float[:] mvMags
 
     for i in xrange(nSnap):
         snap = snapList[i]
@@ -1104,18 +1104,13 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             columns = (1. + z)*waves if obsFrame else waves
         elif outType == 'UV slope':
             columns = np.append(["beta", "norm", "R"], centreWaves)
-            columns[-1] = "M1600"           
+            columns[-1] = "M1600-100"           
         # Save the output to the disk
         DataFrame(output, index = galIndices, columns = columns).\
         to_hdf(get_output_name(prefix, ".hdf5", snap, outPath), "w")
        
         if len(snapList) == 1:
-            if outType == 'UV slope':
-                mvMags = np.zeros(nGal*(nFlux + nR), dtype = 'f4')
-            else:
-                mvMags = np.zeros(nGal*nFlux, dtype = 'f4')
-            mvMags[...] = mvOutput
-            mags = np.asarray(mvMags, dtype = 'f4').reshape(nGal, -1)
+            mags = DataFrame(deepcopy(output), index = galIndices, columns = columns)
 
         free_gal_props(galProps, nGal)
         free(ageList)
