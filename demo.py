@@ -1,9 +1,11 @@
+from __future__ import print_function
 import numpy as np
 from dragons import meraxes
 import magcalc as mc
 
 # Path to Meraxes output
-fname = "output/meraxes.hdf5"
+fname = "/lustre/projects/p102_astro/smutch/meraxes/paper_runs/512/fiducial/output/meraxes.hdf5"
+
 
 # Set cosmology
 meraxes.set_little_h(fname)
@@ -13,7 +15,7 @@ Om0 = params['OmegaM']
 
 
 # Read galaxy properties
-snapshot = 20
+snapshot = 40
 z = meraxes.io.grab_redshift(fname, snapshot)
 gals = meraxes.io.read_gals(fname, snapshot, props=[
                             "StellarMass", "GhostFlag"])
