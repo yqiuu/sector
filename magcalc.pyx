@@ -1088,7 +1088,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
         # Convert apparent magnitudes to absolute magnitudes
         if outType == 'ph' and nObs > 0:
-            output[:, nRest:] += cosmo.distmod(z)
+            output[:, nRest:] += cosmo.distmod(z).value
         # Convert to observed frame fluxes       
         if outType == 'sp' and obsFrame:
             factor = 10./cosmo.luminosity_distance(z).to(u.parsec).value
