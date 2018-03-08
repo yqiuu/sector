@@ -183,8 +183,8 @@ cdef extern from "mag_calc_cext.h":
         float sfr
 
     struct prop_set:
-        props *nodes
-        int nNode
+        props *SSPs
+        int nSSP
 
 cdef struct trace_params:
     int **firstProgenitor
@@ -196,31 +196,31 @@ cdef struct trace_params:
     # Unit: 1 Myr
     float *dTime
     int tSnap
-    props *nodes
-    int nNode
+    props *SSPs
+    int nSSP
 
 DEF MAX_NODE = 100000
 
 cdef void trace_progenitors(int snap, int galIdx, trace_params *args):
     cdef:
         float sfr
-        props *pNodes
+        props *pSSPs
         int nProg
     if galIdx >= 0:
         sfr = args.sfr[snap][galIdx]
         if sfr > 0.:
-            args.nNode += 1
-            nProg = args.nNode
+            args.nSSP += 1
+            nProg = args.nSSP
             if (nProg >= MAX_NODE):
                 raise MemoryError("Error: Number of progenitors exceeds MAX_NODE")
-            pNodes = args.nodes + nProg
-            pNodes.index = args.tSnap - snap
+            pSSPs = args.SSPs + nProg
+            pSSPs.index = args.tSnap - snap
             # <<<<< Old metallicity tracer
-            pNodes.metals = args.metals[snap][galIdx]
+            pSSPs.metals = args.metals[snap][galIdx]
             # >>>>> New metallicity tracer
-            #pNodes.metals = trace_metallicity(snap, galIdx, args)
+            #pSSPs.metals = trace_metallicity(snap, galIdx, args)
             # <<<<<
-            pNodes.sfr = sfr
+            pSSPs.sfr = sfr
             #print "snap %d, galIdx %d, metals %.3f sfr %.3f\n"%(snap, galIdx, 
             #                                                    args.metals[snap][galIdx], 
             #                                                    sfr)
@@ -254,9 +254,9 @@ cdef prop_set *read_properties_by_progenitors(int tSnap, int *indices, int nGal)
         size_t memSize
         size_t totalMemSize = 0
 
-        prop_set *galProps = <prop_set*>malloc(nGal*sizeof(prop_set))
-        prop_set *pGalProps
-        props nodes[MAX_NODE]
+        prop_set *SFHs = <prop_set*>malloc(nGal*sizeof(prop_set))
+        prop_set *pSFHs
+        props SSPs[MAX_NODE]
         trace_params args
 
         int galIdx
@@ -271,7 +271,7 @@ cdef prop_set *read_properties_by_progenitors(int tSnap, int *indices, int nGal)
     #args.dTime = g_dTime 
     # <<<<<
     args.tSnap = tSnap
-    args.nodes = nodes
+    args.SSPs = SSPs
 
     timing_start("# Read galaxies properties")
     for iG in xrange(nGal):
@@ -280,31 +280,31 @@ cdef prop_set *read_properties_by_progenitors(int tSnap, int *indices, int nGal)
         sfr = args.sfr[tSnap][galIdx]
         if sfr > 0.:
             nProg += 1
-            nodes[nProg].index = 0
+            SSPs[nProg].index = 0
             # <<<<< Old metallicity tracer
-            nodes[nProg].metals = args.metals[tSnap][galIdx]
+            SSPs[nProg].metals = args.metals[tSnap][galIdx]
             # >>>>> New metallicity tracer
-            #nodes[nProg].metals = trace_metallicity(tSnap, galIdx, &args)
+            #SSPs[nProg].metals = trace_metallicity(tSnap, galIdx, &args)
             # <<<<<
-            nodes[nProg].sfr = sfr
-        args.nNode = nProg
+            SSPs[nProg].sfr = sfr
+        args.nSSP = nProg
         trace_progenitors(tSnap - 1, args.firstProgenitor[tSnap][galIdx], &args)
-        nProg = args.nNode + 1
-        pGalProps = galProps + iG
-        pGalProps.nNode = nProg
+        nProg = args.nSSP + 1
+        pSFHs = SFHs + iG
+        pSFHs.nSSP = nProg
         if nProg == 0:
-            pGalProps.nodes = NULL
+            pSFHs.SSPs = NULL
             print "Warning: snapshot %d, index %d"%(tSnap, galIdx)
             print "         the star formation rate is zero throughout the histroy"
         else:
             memSize = nProg*sizeof(props)
-            pGalProps.nodes = <props*>malloc(memSize)
-            memcpy(pGalProps.nodes, nodes, memSize)
+            pSFHs.SSPs = <props*>malloc(memSize)
+            memcpy(pSFHs.SSPs, SSPs, memSize)
             totalMemSize += memSize
 
     print "# %.1f MB memory has been allocted"%(totalMemSize/1024./1024.)
     timing_end()
-    return galProps
+    return SFHs
 
 
 def trace_star_formation_history(fname, snap, galIndices, h):
@@ -317,26 +317,26 @@ def trace_star_formation_history(fname, snap, galIndices, h):
         int iG
         int nGal = len(galIndices)
         int *indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-        prop_set *galProps = \
+        prop_set *SFHs = \
         read_properties_by_progenitors(snap, indices, nGal)
     free(indices)
     free_meraxes(snapMin, snap)
     # Convert output to numpy array
     cdef:
         int iN
-        int nNode
-        props *nodes
-        double[:, ::1] mvNodes
+        int nSSP
+        props *SSPs
+        double[:, ::1] mvSSPs
     output = np.empty(nGal, dtype = object)
     for iG in xrange(nGal):
-        nNode = galProps[iG].nNode
-        nodes = galProps[iG].nodes
-        mvNodes = np.zeros([nNode, 3])
-        for iN in xrange(nNode):
-            mvNodes[iN][0] = nodes[iN].index
-            mvNodes[iN][1] = nodes[iN].metals
-            mvNodes[iN][2] = nodes[iN].sfr
-        output[iG] = np.asarray(mvNodes)
+        nSSP = SFHs[iG].nSSP
+        SSPs = SFHs[iG].SSPs
+        mvSSPs = np.zeros([nSSP, 3])
+        for iN in xrange(nSSP):
+            mvSSPs[iN][0] = SSPs[iN].index
+            mvSSPs[iN][1] = SSPs[iN].metals
+            mvSSPs[iN][2] = SSPs[iN].sfr
+        output[iG] = np.asarray(mvSSPs)
     return output
 
 
@@ -378,10 +378,10 @@ def save_star_formation_history(fname, snapList, idxList, h,
     cdef:
         int iG, nGal
         int *indices
-        prop_set *galProps
+        prop_set *SFHs
 
-        int iN, nNode
-        props *pNodes
+        int iN, nSSP
+        props *pSSPs
     for iS in xrange(nSnap):
         snap = snapList[iS]
         fp = open(get_output_name(prefix, ".bin", snap, outPath), "wb")
@@ -390,16 +390,16 @@ def save_star_formation_history(fname, snapList, idxList, h,
         fp.write(pack('i', nGal))
         fp.write(pack('%di'%nGal, *galIndices))
         indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-        galProps = read_properties_by_progenitors(snap, indices, nGal)
+        SFHs = read_properties_by_progenitors(snap, indices, nGal)
         free(indices)
         for iG in xrange(nGal):
-            nNode = galProps[iG].nNode
-            fp.write(pack('i', nNode))
-            pNodes = galProps[iG].nodes
-            for iN in xrange(nNode):
-                fp.write(pack('h', pNodes.index))
-                fp.write(pack('ff', pNodes.metals, pNodes.sfr))
-                pNodes += 1
+            nSSP = SFHs[iG].nSSP
+            fp.write(pack('i', nSSP))
+            pSSPs = SFHs[iG].SSPs
+            for iN in xrange(nSSP):
+                fp.write(pack('h', pSSPs.index))
+                fp.write(pack('ff', pSSPs.metals, pSSPs.sfr))
+                pSSPs += 1
         fp.close()
     free_meraxes(snapMin, snapMax)
 
@@ -410,26 +410,26 @@ cdef prop_set *read_properties_by_file(name):
     cdef:
         int iG
         int nGal = unpack('i', fp.read(sizeof(int)))[0]
-        prop_set *galProps = <prop_set*>malloc(nGal*sizeof(prop_set))
-        prop_set *pGalProps = galProps
+        prop_set *SFHs = <prop_set*>malloc(nGal*sizeof(prop_set))
+        prop_set *pSFHs = SFHs
 
-        int iN, nNode
-        props *pNodes
+        int iN, nSSP
+        props *pSSPs
     fp.read(nGal*sizeof(int)) # Skip galaxy indices
     for iG in xrange(nGal):
-        pGalProps = galProps + iG
-        nNode = unpack('i', fp.read(sizeof(int)))[0]
-        pGalProps.nNode = nNode
-        pNodes = <props*>malloc(nNode*sizeof(props))
-        pGalProps.nodes = pNodes
-        for iN in xrange(nNode):
-            pNodes.index = unpack('h', fp.read(sizeof(short)))[0]
-            pNodes.metals = unpack('f', fp.read(sizeof(float)))[0]
-            pNodes.sfr = unpack('f', fp.read(sizeof(float)))[0]
-            pNodes += 1
+        pSFHs = SFHs + iG
+        nSSP = unpack('i', fp.read(sizeof(int)))[0]
+        pSFHs.nSSP = nSSP
+        pSSPs = <props*>malloc(nSSP*sizeof(props))
+        pSFHs.SSPs = pSSPs
+        for iN in xrange(nSSP):
+            pSSPs.index = unpack('h', fp.read(sizeof(short)))[0]
+            pSSPs.metals = unpack('f', fp.read(sizeof(float)))[0]
+            pSSPs.sfr = unpack('f', fp.read(sizeof(float)))[0]
+            pSSPs += 1
     fp.close()
     timing_end()
-    return galProps
+    return SFHs
 
 
 def read_galaxy_indices(name):
@@ -838,16 +838,16 @@ def get_output_name(prefix, postfix, snap, path):
     return os.path.join(path, fname)
 
 
-cdef void free_gal_props(prop_set *galProps, int nGal):
+cdef void free_gal_props(prop_set *SFHs, int nGal):
     cdef int iG
     for iG in xrange(nGal):
-        free(galProps[iG].nodes)
-    free(galProps)
+        free(SFHs[iG].SSPs)
+    free(SFHs)
  
 
 cdef extern from "mag_calc_cext.h" nogil:
     float *composite_spectra_cext(sed_params *rawSpectra,
-                                  prop_set *galProps, int nGal,
+                                  prop_set *SFHs, int nGal,
                                   double z, double *ageList, int nAgeList,
                                   double *filters, double *logWaves, int nFlux, int nObs,
                                   double *absorption, dust_params *dustArgs,
@@ -967,7 +967,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         int nGal
         int *indices
 
-        prop_set *galProps
+        prop_set *SFHs
 
         int nAgeList
         double *ageList
@@ -996,12 +996,12 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         if type(gals[0]) is str:
             galIndices = read_galaxy_indices(gals[i])
             nGal = len(galIndices)
-            galProps = read_properties_by_file(gals[i])
+            SFHs = read_properties_by_file(gals[i])
         else:
             galIndices = gals[i]
             nGal = len(galIndices)
             indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-            galProps = read_properties_by_progenitors(snap, indices, nGal)
+            SFHs = read_properties_by_progenitors(snap, indices, nGal)
             free(indices)
 
         # Read look back time
@@ -1042,7 +1042,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         rawSpectra = read_sed_templates(sedPath, ageList[nAgeList - 1], minWIdx, maxWIdx)
         # Compute spectra
         cOutput = composite_spectra_cext(rawSpectra,
-                                         galProps, nGal, z, ageList, nAgeList,
+                                         SFHs, nGal, z, ageList, nAgeList,
                                          filters, logWaves, nFlux, nObs,
                                          absorption, dustArgs,
                                          cOutType, nThread)
@@ -1082,7 +1082,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         if len(snapList) == 1:
             mags = DataFrame(deepcopy(output), index = galIndices, columns = columns)
 
-        free_gal_props(galProps, nGal)
+        free_gal_props(SFHs, nGal)
         free(ageList)
         free(dustArgs)
         free(absorption)

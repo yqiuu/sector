@@ -266,10 +266,17 @@ struct props {
 };
 
 struct prop_set {
-   struct props *nodes;
-   int nNode;
+   struct props *SSPs;
+   int nSSP;
 };
 
+struct gal_params {
+   struct prop_set *SFHs;
+   int nGal;
+   double *ageList;
+   double nAgeList;
+   double z;
+};
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *                                                                             *
@@ -625,7 +632,7 @@ inline void templates_working(struct sed_params *rawSpectra,
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 float *composite_spectra_cext(struct sed_params *rawSpectra,
-                              struct prop_set *galProps, int nGal,
+                              struct prop_set *SFHs, int nGal,
                               double z, double *ageList, int nAgeList,
                               double *filters, double* logWaves, int nFlux, int nObs,
                               double *absorption, struct dust_params *dustArgs,
@@ -646,8 +653,8 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     float *output = malloc(nGal*nFlux*sizeof(float));
     float *pOutput = output;
 
-    struct prop_set *pGalProps;
-    struct props *pNodes;
+    struct prop_set *pSFHs;
+    struct props *pSSPs;
     int nProg;
 
     double sfr;
@@ -682,17 +689,17 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
             #endif
         }
         // Sum contributions from all progenitors
-        pGalProps = galProps + iG;
-        nProg = pGalProps->nNode;
+        pSFHs = SFHs + iG;
+        nProg = pSFHs->nSSP;
         for(iP = 0; iP < nProg; ++iP) {
-            pNodes = pGalProps->nodes + iP;
-            sfr = pNodes->sfr;
-            metals = (int)(pNodes->metals*1000 - .5);
+            pSSPs = pSFHs->SSPs + iP;
+            sfr = pSSPs->sfr;
+            metals = (int)(pSSPs->metals*1000 - .5);
             if (metals < minZ)
                 metals = minZ;
             else if (metals > maxZ)
                 metals = maxZ;
-            pData = fluxTmp + (metals*nAgeList + pNodes->index)*nFlux;
+            pData = fluxTmp + (metals*nAgeList + pSSPs->index)*nFlux;
             for(iF = 0 ; iF < nFlux; ++iF)
                 flux[iF] += sfr*pData[iF];
         }

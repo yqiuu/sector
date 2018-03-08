@@ -1,8 +1,3 @@
-int **g_firstProgenitor;
-int **g_nextProgenitor;
-float **g_metals;
-float **g_sfr;
-
 struct props {
     short index;
     float metals;
@@ -10,14 +5,9 @@ struct props {
 };
 
 struct prop_set {
-    struct props *nodes;
-    int nNode;
+    struct props *SSPs;
+    int nSSP;
 };
-
-struct prop_set *read_properties_by_progenitors(int **firstProgenitor, int **nextProgenitor,
-                                                float **galMetals, float **galSFR,
-                                                int tSnap, int *indices, int nGal);
-
 
 struct sed_params {
     double *Z;
