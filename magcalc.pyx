@@ -1,10 +1,10 @@
 import os, sys
 from warnings import warn
 from time import time
-from struct import pack, unpack
 from copy import deepcopy
 
 from libc.stdlib cimport malloc, free
+from libc.stdio cimport *
 from libc.string cimport memcpy
 from libc.math cimport exp, log
 
@@ -102,9 +102,10 @@ cdef void free_gal_params(gal_params *galParams):
     free(galParams)
 
 
-cdef void save_gal_params(gal_params *galParams, fname):
+cdef void save_gal_params(gal_params *galParams, char *fname):
     cdef:
-        int iA, iG, iN, nSSP
+        int iA, iG
+        FILE *fp
 
         double z = galParams.z
         int nAgeList = galParams.nAgeList
@@ -112,60 +113,72 @@ cdef void save_gal_params(gal_params *galParams, fname):
         int nGal = galParams.nGal
         int *indices = galParams.indices
         prop_set *SFHs = galParams.SFHs
-        props *pSSPs
 
-    with open(fname, 'wb') as fp:
-        fp.write(pack('d', galParams.z))
-        fp.write(pack('i', galParams.nAgeList))
-        for iA in xrange(nAgeList):
-            fp.write(pack('d', ageList[iA]))
-        fp.write(pack('i', galParams.nGal))
-        for iG in xrange(nGal):
-            fp.write(pack('i', indices[iG]))
-        for iG in xrange(nGal):
-            nSSP = SFHs[iG].nSSP
-            fp.write(pack('i', nSSP))
-            pSSPs = SFHs[iG].SSPs
-            for iN in xrange(nSSP):
-                fp.write(pack('h', pSSPs.index))
-                fp.write(pack('ff', pSSPs.metals, pSSPs.sfr))
-                pSSPs += 1
+        int nSSP
+
+    fp = fopen(fname, 'wb')
+    # Write redshift
+    fwrite(&z, sizeof(double), 1, fp)
+    # Write ageList
+    fwrite(&nAgeList, sizeof(int), 1, fp)
+    fwrite(ageList, sizeof(double), nAgeList, fp)
+    # Write indices
+    fwrite(&nGal, sizeof(int), 1, fp)
+    fwrite(indices, sizeof(int), nGal, fp)
+    # Write SFHs
+    for iG in xrange(nGal):
+        nSSP = SFHs[iG].nSSP
+        fwrite(&nSSP, sizeof(int), 1, fp)
+        fwrite(SFHs[iG].SSPs, sizeof(props), nSSP, fp)
+    fclose(fp)
 
 
-cdef void read_gal_params(gal_params *galParams, fname):
+cdef void read_gal_params(gal_params *galParams, char *fname):
     cdef:
+        int iG
+        FILE *fp
+
+        double z
         int nAgeList
-        int iG, nGal
-        prop_set *pSFHs
+        double *ageList
+        int nGal
+        int *indices
+        prop_set *SFHs
 
-        int iN, nSSP
-        props *pSSPs
+        int nSSP
 
-    timing_start("# Read galaxies properties")
-    with open(fname, 'rb') as fp:
-        galParams.z = unpack('d', fp.read(sizeof(double)))[0]
-        nAgeList = unpack('i', fp.read(sizeof(int)))[0]
-        galParams.nAgeList = nAgeList
-        galParams.ageList = init_1d_double(np.array(unpack('%dd'%nAgeList, 
-                                                           fp.read(nAgeList*sizeof(double))),
-                                                    dtype = 'f8'))
-        nGal = unpack('i', fp.read(sizeof(int)))[0]
-        galParams.nGal = nGal
-        galParams.indices = init_1d_int(np.array(unpack('%di'%nGal, fp.read(nGal*sizeof(int))), 
-                                                 dtype = 'i4'))
-        galParams.SFHs = <prop_set*>malloc(nGal*sizeof(prop_set))                      
-        pSFHs = galParams.SFHs
-        for iG in xrange(nGal):
-            nSSP = unpack('i', fp.read(sizeof(int)))[0]
-            pSFHs.nSSP = nSSP
-            pSSPs = <props*>malloc(nSSP*sizeof(props))
-            pSFHs.SSPs = pSSPs
-            for iN in xrange(nSSP):
-                pSSPs.index = unpack('h', fp.read(sizeof(short)))[0]
-                pSSPs.metals = unpack('f', fp.read(sizeof(float)))[0]
-                pSSPs.sfr = unpack('f', fp.read(sizeof(float)))[0]
-                pSSPs += 1
-            pSFHs += 1
+    timing_start("# Read galaxy properties")
+    fp = fopen(fname, 'rb')
+    if fp == NULL:
+        raise IOError("Fail to open the input file")
+    # Read redshift
+    fread(&z, sizeof(double), 1, fp)
+    # Read ageList
+    fread(&nAgeList, sizeof(int), 1, fp)
+    ageList = <double*>malloc(nAgeList*sizeof(double))
+    fread(ageList, sizeof(double), nAgeList, fp)
+    # Read indices
+    fread(&nGal, sizeof(int), 1, fp)
+    indices = <int*>malloc(nGal*sizeof(int))
+    fread(indices, sizeof(int), nGal, fp)
+    # Read SFHs
+    SFHs = <prop_set*>malloc(nGal*sizeof(prop_set))
+    pSFHs = SFHs
+    for iG in xrange(nGal):
+        fread(&nSSP, sizeof(int), 1, fp)
+        SFHs[iG].nSSP = nSSP
+        SFHs[iG].SSPs = <props*>malloc(nSSP*sizeof(props))
+        fread(SFHs[iG].SSPs, sizeof(props), nSSP, fp)
+        pSFHs += 1
+    fclose(fp)
+
+    galParams.z = z
+    galParams.nAgeList = nAgeList
+    galParams.ageList = ageList
+    galParams.nGal = nGal
+    galParams.indices = indices
+    galParams.SFHs = SFHs
+
     timing_end()
 
 
@@ -302,7 +315,7 @@ cdef void trace_progenitors(int snap, int galIdx, trace_params *args):
             args.nSSP += 1
             nProg = args.nSSP
             if (nProg >= MAX_NODE):
-                raise MemoryError("Error: Number of progenitors exceeds MAX_NODE")
+                raise MemoryError("Number of progenitors exceeds MAX_NODE")
             pSSPs = args.SSPs + nProg
             pSSPs.index = args.tSnap - snap
             # <<<<< Old metallicity tracer
