@@ -266,16 +266,17 @@ struct props {
 };
 
 struct prop_set {
-   struct props *SSPs;
-   int nSSP;
+    struct props *SSPs;
+    int nSSP;
 };
 
 struct gal_params {
-   struct prop_set *SFHs;
-   int nGal;
-   double *ageList;
-   double nAgeList;
-   double z;
+    double z;
+    int nAgeList;
+    double *ageList;
+    int nGal;
+    int *indices;
+    struct prop_set *SFHs;
 };
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -632,8 +633,7 @@ inline void templates_working(struct sed_params *rawSpectra,
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 float *composite_spectra_cext(struct sed_params *rawSpectra,
-                              struct prop_set *SFHs, int nGal,
-                              double z, double *ageList, int nAgeList,
+                              struct gal_params *galParams,
                               double *filters, double* logWaves, int nFlux, int nObs,
                               double *absorption, struct dust_params *dustArgs,
                               short outType, short nThread) {
@@ -642,7 +642,20 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     int iF, iG, iP, iFG;
     double *pData;
 
-    //Generate templates
+    // Initialise galaxies parameters
+    double z = galParams->z;
+    int nAgeList= galParams->nAgeList;
+    double *ageList = galParams->ageList;
+    int nGal = galParams->nGal;
+    struct prop_set *SFHs = galParams->SFHs;
+
+    struct prop_set *pSFHs;
+    struct props *pSSPs;
+    int nProg;
+    double sfr;
+    int metals;
+
+    // Generate templates
     if (g_spectra == NULL) {
         g_spectra = init_template(rawSpectra, ageList, nAgeList, nFlux);
         templates_time_integration(rawSpectra, ageList, nAgeList);
@@ -653,12 +666,6 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
     float *output = malloc(nGal*nFlux*sizeof(float));
     float *pOutput = output;
 
-    struct prop_set *pSFHs;
-    struct props *pSSPs;
-    int nProg;
-
-    double sfr;
-    int metals;
     int minZ = rawSpectra->minZ;
     int maxZ = rawSpectra->maxZ;
 

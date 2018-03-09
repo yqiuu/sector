@@ -71,6 +71,104 @@ def timing_end():
 # Functions to load galaxy properties                                           #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+cdef extern from "mag_calc_cext.h":
+    struct props:
+        short index
+        float metals
+        float sfr
+
+    struct prop_set:
+        props *SSPs
+        int nSSP
+
+    struct gal_params:
+        double z
+        int nAgeList
+        double *ageList
+        int nGal
+        int *indices
+        prop_set *SFHs
+
+
+cdef void free_gal_params(gal_params *galParams):
+    cdef:
+        int iG
+        int nGal = galParams.nGal
+    for iG in xrange(nGal):
+        free(galParams.SFHs[iG].SSPs)
+    free(galParams.SFHs)
+    free(galParams.ageList)
+    free(galParams.indices)
+    free(galParams)
+
+
+cdef void save_gal_params(gal_params *galParams, fname):
+    cdef:
+        int iA, iG, iN, nSSP
+
+        double z = galParams.z
+        int nAgeList = galParams.nAgeList
+        double *ageList = galParams.ageList
+        int nGal = galParams.nGal
+        int *indices = galParams.indices
+        prop_set *SFHs = galParams.SFHs
+        props *pSSPs
+
+    with open(fname, 'wb') as fp:
+        fp.write(pack('d', galParams.z))
+        fp.write(pack('i', galParams.nAgeList))
+        for iA in xrange(nAgeList):
+            fp.write(pack('d', ageList[iA]))
+        fp.write(pack('i', galParams.nGal))
+        for iG in xrange(nGal):
+            fp.write(pack('i', indices[iG]))
+        for iG in xrange(nGal):
+            nSSP = SFHs[iG].nSSP
+            fp.write(pack('i', nSSP))
+            pSSPs = SFHs[iG].SSPs
+            for iN in xrange(nSSP):
+                fp.write(pack('h', pSSPs.index))
+                fp.write(pack('ff', pSSPs.metals, pSSPs.sfr))
+                pSSPs += 1
+
+
+cdef void read_gal_params(gal_params *galParams, fname):
+    cdef:
+        int nAgeList
+        int iG, nGal
+        prop_set *pSFHs
+
+        int iN, nSSP
+        props *pSSPs
+
+    timing_start("# Read galaxies properties")
+    with open(fname, 'rb') as fp:
+        galParams.z = unpack('d', fp.read(sizeof(double)))[0]
+        nAgeList = unpack('i', fp.read(sizeof(int)))[0]
+        galParams.nAgeList = nAgeList
+        galParams.ageList = init_1d_double(np.array(unpack('%dd'%nAgeList, 
+                                                           fp.read(nAgeList*sizeof(double))),
+                                                    dtype = 'f8'))
+        nGal = unpack('i', fp.read(sizeof(int)))[0]
+        galParams.nGal = nGal
+        galParams.indices = init_1d_int(np.array(unpack('%di'%nGal, fp.read(nGal*sizeof(int))), 
+                                                 dtype = 'i4'))
+        galParams.SFHs = <prop_set*>malloc(nGal*sizeof(prop_set))                      
+        pSFHs = galParams.SFHs
+        for iG in xrange(nGal):
+            nSSP = unpack('i', fp.read(sizeof(int)))[0]
+            pSFHs.nSSP = nSSP
+            pSSPs = <props*>malloc(nSSP*sizeof(props))
+            pSFHs.SSPs = pSSPs
+            for iN in xrange(nSSP):
+                pSSPs.index = unpack('h', fp.read(sizeof(short)))[0]
+                pSSPs.metals = unpack('f', fp.read(sizeof(float)))[0]
+                pSSPs.sfr = unpack('f', fp.read(sizeof(float)))[0]
+                pSSPs += 1
+            pSFHs += 1
+    timing_end()
+
+
 cdef:
     int **g_firstProgenitor = NULL
     int **g_nextProgenitor = NULL
@@ -79,6 +177,7 @@ cdef:
     # >>>>> New metallicity tracer
     #float *g_dTime 
     # <<<<<
+
 
 def read_meraxes(fname, int snapMax, h):
     #=====================================================================
@@ -176,16 +275,6 @@ cdef void free_meraxes(int snapMin, int snapMax):
     # <<<<<
 
 
-cdef extern from "mag_calc_cext.h":
-    struct props:
-        short index
-        float metals
-        float sfr
-
-    struct prop_set:
-        props *SSPs
-        int nSSP
-
 cdef struct trace_params:
     int **firstProgenitor
     int **nextProgenitor
@@ -198,6 +287,7 @@ cdef struct trace_params:
     int tSnap
     props *SSPs
     int nSSP
+
 
 DEF MAX_NODE = 100000
 
@@ -247,9 +337,10 @@ cdef inline float trace_metallicity(int snap, int galIdx, trace_params *args):
                /args.sfr[snap][galIdx]/args.dTime[snap]*1e4
 
 
-cdef prop_set *read_properties_by_progenitors(int tSnap, int *indices, int nGal):
+cdef prop_set *trace_properties(int tSnap, int[:] indices):
     cdef:
         int iG
+        int nGal = indices.shape[0]
 
         size_t memSize
         size_t totalMemSize = 0
@@ -307,37 +398,58 @@ cdef prop_set *read_properties_by_progenitors(int tSnap, int *indices, int nGal)
     return SFHs
 
 
-def trace_star_formation_history(fname, snap, galIndices, h):
-    #=====================================================================
-    # Read galaxy properties from Meraxes outputs
-    #=====================================================================
-    cdef int snapMin = read_meraxes(fname, snap, h)
-    # Trace galaxy merge trees
-    cdef:
-        int iG
-        int nGal = len(galIndices)
-        int *indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-        prop_set *SFHs = \
-        read_properties_by_progenitors(snap, indices, nGal)
-    free(indices)
-    free_meraxes(snapMin, snap)
-    # Convert output to numpy array
-    cdef:
-        int iN
-        int nSSP
-        props *SSPs
-        double[:, ::1] mvSSPs
-    output = np.empty(nGal, dtype = object)
-    for iG in xrange(nGal):
-        nSSP = SFHs[iG].nSSP
-        SSPs = SFHs[iG].SSPs
-        mvSSPs = np.zeros([nSSP, 3])
-        for iN in xrange(nSSP):
-            mvSSPs[iN][0] = SSPs[iN].index
-            mvSSPs[iN][1] = SSPs[iN].metals
-            mvSSPs[iN][2] = SSPs[iN].sfr
-        output[iG] = np.asarray(mvSSPs)
-    return output
+cdef gal_params *read_star_formation_history(fname, snapshot, gals, h):
+    cdef gal_params *galParams = <gal_params*>malloc(sizeof(gal_params))
+    if type(gals) is str:
+        read_gal_params(galParams, gals)
+    else:
+        # Read redshift
+        galParams.z = meraxes.io.grab_redshift(fname, snapshot)
+        # Read lookback time
+        galParams.nAgeList = snapshot
+        timeStep = meraxes.io.read_snaplist(fname, h)[2]*1e6 # Convert Myr to yr
+        ageList = np.zeros(snapshot, dtype = 'f8')
+        for iA in xrange(snapshot):
+            ageList[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
+        galParams.ageList = init_1d_double(ageList)
+        gals = np.asarray(gals, dtype = 'i4')
+        galParams.nGal = len(gals)
+        galParams.indices = init_1d_int(gals)
+        galParams.SFHs = trace_properties(snapshot, gals)
+    return galParams
+
+
+#def trace_star_formation_history(fname, snap, galIndices, h):
+#    #=====================================================================
+#    # Read galaxy properties from Meraxes outputs
+#    #=====================================================================
+#    cdef int snapMin = read_meraxes(fname, snap, h)
+#    # Trace galaxy merge trees
+#    cdef:
+#        int iG
+#        int nGal = len(galIndices)
+#        int *indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
+#        prop_set *SFHs = \
+#        read_gal_params_by_progenitors(snap, indices, nGal)
+#    free(indices)
+#    free_meraxes(snapMin, snap)
+#    # Convert output to numpy array
+#    cdef:
+#        int iN
+#        int nSSP
+#        props *SSPs
+#        double[:, ::1] mvSSPs
+#    output = np.empty(nGal, dtype = object)
+#    for iG in xrange(nGal):
+#        nSSP = SFHs[iG].nSSP
+#        SSPs = SFHs[iG].SSPs
+#        mvSSPs = np.zeros([nSSP, 3])
+#        for iN in xrange(nSSP):
+#            mvSSPs[iN][0] = SSPs[iN].index
+#            mvSSPs[iN][1] = SSPs[iN].metals
+#            mvSSPs[iN][2] = SSPs[iN].sfr
+#        output[iG] = np.asarray(mvSSPs)
+#    return output
 
 
 def save_star_formation_history(fname, snapList, idxList, h, 
@@ -375,81 +487,11 @@ def save_star_formation_history(fname, snapList, idxList, h,
         nSnap = len(snapList)
     snapMin = read_meraxes(fname, snapMax, h)
     # Read and save galaxy merge trees
-    cdef:
-        int iG, nGal
-        int *indices
-        prop_set *SFHs
-
-        int iN, nSSP
-        props *pSSPs
+    cdef gal_params *galParams
     for iS in xrange(nSnap):
-        snap = snapList[iS]
-        fp = open(get_output_name(prefix, ".bin", snap, outPath), "wb")
-        galIndices = idxList[iS]
-        nGal = len(galIndices)
-        fp.write(pack('i', nGal))
-        fp.write(pack('%di'%nGal, *galIndices))
-        indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-        SFHs = read_properties_by_progenitors(snap, indices, nGal)
-        free(indices)
-        for iG in xrange(nGal):
-            nSSP = SFHs[iG].nSSP
-            fp.write(pack('i', nSSP))
-            pSSPs = SFHs[iG].SSPs
-            for iN in xrange(nSSP):
-                fp.write(pack('h', pSSPs.index))
-                fp.write(pack('ff', pSSPs.metals, pSSPs.sfr))
-                pSSPs += 1
-        fp.close()
-    free_meraxes(snapMin, snapMax)
-
-
-cdef prop_set *read_properties_by_file(name):
-    timing_start("# Read galaxies properties")
-    fp = open(name, "rb")
-    cdef:
-        int iG
-        int nGal = unpack('i', fp.read(sizeof(int)))[0]
-        prop_set *SFHs = <prop_set*>malloc(nGal*sizeof(prop_set))
-        prop_set *pSFHs = SFHs
-
-        int iN, nSSP
-        props *pSSPs
-    fp.read(nGal*sizeof(int)) # Skip galaxy indices
-    for iG in xrange(nGal):
-        pSFHs = SFHs + iG
-        nSSP = unpack('i', fp.read(sizeof(int)))[0]
-        pSFHs.nSSP = nSSP
-        pSSPs = <props*>malloc(nSSP*sizeof(props))
-        pSFHs.SSPs = pSSPs
-        for iN in xrange(nSSP):
-            pSSPs.index = unpack('h', fp.read(sizeof(short)))[0]
-            pSSPs.metals = unpack('f', fp.read(sizeof(float)))[0]
-            pSSPs.sfr = unpack('f', fp.read(sizeof(float)))[0]
-            pSSPs += 1
-    fp.close()
-    timing_end()
-    return SFHs
-
-
-def read_galaxy_indices(name):
-    fp = open(name, "rb")
-    nGal = unpack('i', fp.read(sizeof(int)))[0]
-    indices = np.array(unpack('%di'%nGal, fp.read(nGal*sizeof(int))))
-    fp.close()
-    return indices
-
-
-def get_age_list(fname, snap, nAgeList, h):
-    #=====================================================================
-    # Function to generate an array of stellar ages. It is called by 
-    # galaxy_mags(...).
-    #=====================================================================
-    travelTime = meraxes.io.read_snaplist(fname, h)[2]*1e6 # Convert Myr to yr
-    ageList = np.zeros(nAgeList)
-    for i in xrange(nAgeList):
-        ageList[i] = travelTime[snap - i - 1] - travelTime[snap]
-    return ageList
+        galParams = read_star_formation_history(fname, snapList[iS], idxList[iS], h)
+        save_gal_params(galParams, get_output_name(prefix, '.bin', snapList[iS], outPath))
+        free_gal_params(galParams)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -838,17 +880,9 @@ def get_output_name(prefix, postfix, snap, path):
     return os.path.join(path, fname)
 
 
-cdef void free_gal_props(prop_set *SFHs, int nGal):
-    cdef int iG
-    for iG in xrange(nGal):
-        free(SFHs[iG].SSPs)
-    free(SFHs)
- 
-
 cdef extern from "mag_calc_cext.h" nogil:
     float *composite_spectra_cext(sed_params *rawSpectra,
-                                  prop_set *SFHs, int nGal,
-                                  double z, double *ageList, int nAgeList,
+                                  gal_params *galParams,
                                   double *filters, double *logWaves, int nFlux, int nObs,
                                   double *absorption, dust_params *dustArgs,
                                   short outType, short nThread)
@@ -941,8 +975,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
     cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
    
     cdef:
-        int i, iG
-        int snap, nSnap
+        int iS, iF, iG
+        int nSnap
         int sanpMin = 1
         int snapMax
 
@@ -955,25 +989,18 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         snapMax = max(snapList)
         nSnap = len(snapList)
 
-    if type(gals[0]) is str:
-        snapMin = 1
-    else:
+    if type(gals[0]) is not str:
         snapMin = read_meraxes(fname, snapMax, h)
 
     waves = get_wavelength(sedPath)
     cdef:
         sed_params *rawSpectra = NULL
-        int nWaves = len(waves)
-        int nGal
-        int *indices
-
-        prop_set *SFHs
-
-        int nAgeList
-        double *ageList
-        
+        gal_params *galParams = NULL 
         double z
+        int nGal
+        int[:] mvIndices
 
+        int nWaves = len(waves)
         int nRest = 0
         int nObs = 0
         int nFlux = 0
@@ -990,28 +1017,14 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         float *cOutput 
         float[:] mvOutput
 
-    for i in xrange(nSnap):
-        snap = snapList[i]
+    for iS in xrange(nSnap):
         # Read star formation rates and metallcities form galaxy merger trees
-        if type(gals[0]) is str:
-            galIndices = read_galaxy_indices(gals[i])
-            nGal = len(galIndices)
-            SFHs = read_properties_by_file(gals[i])
-        else:
-            galIndices = gals[i]
-            nGal = len(galIndices)
-            indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-            SFHs = read_properties_by_progenitors(snap, indices, nGal)
-            free(indices)
-
-        # Read look back time
-        nAgeList = snap - snapMin + 1
-        ageList= init_1d_double(get_age_list(fname, snap, nAgeList, h))
-        # Read redshift
-        z = meraxes.io.grab_redshift(fname, snap)
+        galParams = read_star_formation_history(fname, snapList[iS], gals[iS], h)
+        z = galParams.z
+        nGal = galParams.nGal
         # Convert the format of dust parameters 
         if dustParams is not None:
-            dustArgs = dust_parameters(dustParams[i])
+            dustArgs = dust_parameters(dustParams[iS])
         # Compute the transmission of the IGM
         if IGM == 'I2014':
             absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
@@ -1039,10 +1052,10 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
-        rawSpectra = read_sed_templates(sedPath, ageList[nAgeList - 1], minWIdx, maxWIdx)
+        rawSpectra = read_sed_templates(sedPath, galParams.ageList[galParams.nAgeList - 1], 
+                                        minWIdx, maxWIdx)
         # Compute spectra
-        cOutput = composite_spectra_cext(rawSpectra,
-                                         SFHs, nGal, z, ageList, nAgeList,
+        cOutput = composite_spectra_cext(rawSpectra, galParams,
                                          filters, logWaves, nFlux, nObs,
                                          absorption, dustArgs,
                                          cOutType, nThread)
@@ -1066,24 +1079,28 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         # Set output column names
         if outType == 'ph':
             columns = []
-            for i in xrange(nRest):
-                columns.append("M%d-%d"%(restBands[i][0], restBands[i][1]))
-            for i in xrange(nObs):
-                columns.append(obsBands[i][0])
+            for iF in xrange(nRest):
+                columns.append("M%d-%d"%(restBands[iF][0], restBands[iF][1]))
+            for iF in xrange(nObs):
+                columns.append(obsBands[iF][0])
         elif outType == 'sp':
             columns = (1. + z)*waves if obsFrame else waves
         elif outType == 'UV slope':
             columns = np.append(["beta", "norm", "R"], centreWaves)
             columns[-1] = "M1600-100"           
         # Save the output to the disk
-        DataFrame(output, index = galIndices, columns = columns).\
-        to_hdf(get_output_name(prefix, ".hdf5", snap, outPath), "w")
+        if type(gals[0]) is str:
+            mvIndices = <int[:nGal]>galParams.indices
+            indices = np.asarray(mvIndices, dtype = 'i4')
+        else:
+            indices = gals[iS]
+        DataFrame(output, index = indices, columns = columns).\
+        to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
        
         if len(snapList) == 1:
-            mags = DataFrame(deepcopy(output), index = galIndices, columns = columns)
+            mags = DataFrame(deepcopy(output), index = gals[0], columns = columns)
 
-        free_gal_props(SFHs, nGal)
-        free(ageList)
+        free_gal_params(galParams)
         free(dustArgs)
         free(absorption)
         free(filters)

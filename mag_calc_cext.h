@@ -1,14 +1,3 @@
-struct props {
-    short index;
-    float metals;
-    float sfr;
-};
-
-struct prop_set {
-    struct props *SSPs;
-    int nSSP;
-};
-
 struct sed_params {
     double *Z;
     int nZ;
@@ -31,9 +20,31 @@ struct dust_params {
 };
 
 
+struct props {
+    short index;
+    float metals;
+    float sfr;
+};
+
+
+struct prop_set {
+    struct props *SSPs;
+    int nSSP;
+};
+
+
+struct gal_params {
+    double z;
+    int nAgeList;
+    double *ageList;
+    int nGal;
+    int *indices;
+    struct prop_set *SFHs;
+};
+
+
 float *composite_spectra_cext(struct sed_params *rawSpectra,
-                              struct prop_set *galProps, int nGal,
-                              double z, double *ageList, int nAgeList,
+                              struct gal_params *galParams,
                               double *filters, double *logWaves, int nFlux, int nObs,
                               double *absorption, struct dust_params *dustArgs,
                               short outType, short nThread);
