@@ -72,22 +72,22 @@ def timing_end():
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 cdef extern from "mag_calc_cext.h":
-    struct props:
+    struct ssp:
         short index
         float metals
         float sfr
 
-    struct prop_set:
-        props *SSPs
-        int nSSP
+    struct csp:
+        ssp *bursts
+        int nBurst
 
     struct gal_params:
         double z
-        int nAgeList
-        double *ageList
+        int nAgeStep
+        double *ageStep
         int nGal
         int *indices
-        prop_set *SFHs
+        csp *histories
 
 
 cdef void free_gal_params(gal_params *galParams):
@@ -95,9 +95,9 @@ cdef void free_gal_params(gal_params *galParams):
         int iG
         int nGal = galParams.nGal
     for iG in xrange(nGal):
-        free(galParams.SFHs[iG].SSPs)
-    free(galParams.SFHs)
-    free(galParams.ageList)
+        free(galParams.histories[iG].bursts)
+    free(galParams.histories)
+    free(galParams.ageStep)
     free(galParams.indices)
     free(galParams)
 
@@ -108,28 +108,28 @@ cdef void save_gal_params(gal_params *galParams, char *fname):
         FILE *fp
 
         double z = galParams.z
-        int nAgeList = galParams.nAgeList
-        double *ageList = galParams.ageList
+        int nAgeStep = galParams.nAgeStep
+        double *ageStep = galParams.ageStep
         int nGal = galParams.nGal
         int *indices = galParams.indices
-        prop_set *SFHs = galParams.SFHs
+        csp *histories = galParams.histories
 
-        int nSSP
+        int nBurst
 
     fp = fopen(fname, 'wb')
     # Write redshift
     fwrite(&z, sizeof(double), 1, fp)
-    # Write ageList
-    fwrite(&nAgeList, sizeof(int), 1, fp)
-    fwrite(ageList, sizeof(double), nAgeList, fp)
+    # Write ageStep
+    fwrite(&nAgeStep, sizeof(int), 1, fp)
+    fwrite(ageStep, sizeof(double), nAgeStep, fp)
     # Write indices
     fwrite(&nGal, sizeof(int), 1, fp)
     fwrite(indices, sizeof(int), nGal, fp)
-    # Write SFHs
+    # Write histories
     for iG in xrange(nGal):
-        nSSP = SFHs[iG].nSSP
-        fwrite(&nSSP, sizeof(int), 1, fp)
-        fwrite(SFHs[iG].SSPs, sizeof(props), nSSP, fp)
+        nBurst = histories[iG].nBurst
+        fwrite(&nBurst, sizeof(int), 1, fp)
+        fwrite(histories[iG].bursts, sizeof(ssp), nBurst, fp)
     fclose(fp)
 
 
@@ -139,13 +139,13 @@ cdef void read_gal_params(gal_params *galParams, char *fname):
         FILE *fp
 
         double z
-        int nAgeList
-        double *ageList
+        int nAgeStep
+        double *ageStep
         int nGal
         int *indices
-        prop_set *SFHs
+        csp *histories
 
-        int nSSP
+        int nBurst
 
     timing_start("# Read galaxy properties")
     fp = fopen(fname, 'rb')
@@ -153,31 +153,31 @@ cdef void read_gal_params(gal_params *galParams, char *fname):
         raise IOError("Fail to open the input file")
     # Read redshift
     fread(&z, sizeof(double), 1, fp)
-    # Read ageList
-    fread(&nAgeList, sizeof(int), 1, fp)
-    ageList = <double*>malloc(nAgeList*sizeof(double))
-    fread(ageList, sizeof(double), nAgeList, fp)
+    # Read ageStep
+    fread(&nAgeStep, sizeof(int), 1, fp)
+    ageStep = <double*>malloc(nAgeStep*sizeof(double))
+    fread(ageStep, sizeof(double), nAgeStep, fp)
     # Read indices
     fread(&nGal, sizeof(int), 1, fp)
     indices = <int*>malloc(nGal*sizeof(int))
     fread(indices, sizeof(int), nGal, fp)
-    # Read SFHs
-    SFHs = <prop_set*>malloc(nGal*sizeof(prop_set))
-    pSFHs = SFHs
+    # Read histories
+    histories = <csp*>malloc(nGal*sizeof(csp))
+    pHistories = histories
     for iG in xrange(nGal):
-        fread(&nSSP, sizeof(int), 1, fp)
-        SFHs[iG].nSSP = nSSP
-        SFHs[iG].SSPs = <props*>malloc(nSSP*sizeof(props))
-        fread(SFHs[iG].SSPs, sizeof(props), nSSP, fp)
-        pSFHs += 1
+        fread(&nBurst, sizeof(int), 1, fp)
+        histories[iG].nBurst = nBurst
+        histories[iG].bursts = <ssp*>malloc(nBurst*sizeof(ssp))
+        fread(histories[iG].bursts, sizeof(ssp), nBurst, fp)
+        pHistories += 1
     fclose(fp)
 
     galParams.z = z
-    galParams.nAgeList = nAgeList
-    galParams.ageList = ageList
+    galParams.nAgeStep = nAgeStep
+    galParams.ageStep = ageStep
     galParams.nGal = nGal
     galParams.indices = indices
-    galParams.SFHs = SFHs
+    galParams.histories = histories
 
     timing_end()
 
@@ -298,8 +298,8 @@ cdef struct trace_params:
     # Unit: 1 Myr
     float *dTime
     int tSnap
-    props *SSPs
-    int nSSP
+    ssp *bursts
+    int nBurst
 
 
 DEF MAX_NODE = 100000
@@ -307,23 +307,23 @@ DEF MAX_NODE = 100000
 cdef void trace_progenitors(int snap, int galIdx, trace_params *args):
     cdef:
         float sfr
-        props *pSSPs
+        ssp *pBursts
         int nProg
     if galIdx >= 0:
         sfr = args.sfr[snap][galIdx]
         if sfr > 0.:
-            args.nSSP += 1
-            nProg = args.nSSP
+            args.nBurst += 1
+            nProg = args.nBurst
             if (nProg >= MAX_NODE):
                 raise MemoryError("Number of progenitors exceeds MAX_NODE")
-            pSSPs = args.SSPs + nProg
-            pSSPs.index = args.tSnap - snap
+            pBursts = args.bursts + nProg
+            pBursts.index = args.tSnap - snap
             # <<<<< Old metallicity tracer
-            pSSPs.metals = args.metals[snap][galIdx]
+            pBursts.metals = args.metals[snap][galIdx]
             # >>>>> New metallicity tracer
-            #pSSPs.metals = trace_metallicity(snap, galIdx, args)
+            #pBursts.metals = trace_metallicity(snap, galIdx, args)
             # <<<<<
-            pSSPs.sfr = sfr
+            pBursts.sfr = sfr
             #print "snap %d, galIdx %d, metals %.3f sfr %.3f\n"%(snap, galIdx, 
             #                                                    args.metals[snap][galIdx], 
             #                                                    sfr)
@@ -350,7 +350,7 @@ cdef inline float trace_metallicity(int snap, int galIdx, trace_params *args):
                /args.sfr[snap][galIdx]/args.dTime[snap]*1e4
 
 
-cdef prop_set *trace_properties(int tSnap, int[:] indices):
+cdef csp *trace_properties(int tSnap, int[:] indices):
     cdef:
         int iG
         int nGal = indices.shape[0]
@@ -358,9 +358,9 @@ cdef prop_set *trace_properties(int tSnap, int[:] indices):
         size_t memSize
         size_t totalMemSize = 0
 
-        prop_set *SFHs = <prop_set*>malloc(nGal*sizeof(prop_set))
-        prop_set *pSFHs
-        props SSPs[MAX_NODE]
+        csp *histories = <csp*>malloc(nGal*sizeof(csp))
+        csp *pHistories
+        ssp bursts[MAX_NODE]
         trace_params args
 
         int galIdx
@@ -375,7 +375,7 @@ cdef prop_set *trace_properties(int tSnap, int[:] indices):
     #args.dTime = g_dTime 
     # <<<<<
     args.tSnap = tSnap
-    args.SSPs = SSPs
+    args.bursts = bursts
 
     timing_start("# Read galaxies properties")
     for iG in xrange(nGal):
@@ -384,31 +384,31 @@ cdef prop_set *trace_properties(int tSnap, int[:] indices):
         sfr = args.sfr[tSnap][galIdx]
         if sfr > 0.:
             nProg += 1
-            SSPs[nProg].index = 0
+            bursts[nProg].index = 0
             # <<<<< Old metallicity tracer
-            SSPs[nProg].metals = args.metals[tSnap][galIdx]
+            bursts[nProg].metals = args.metals[tSnap][galIdx]
             # >>>>> New metallicity tracer
-            #SSPs[nProg].metals = trace_metallicity(tSnap, galIdx, &args)
+            #bursts[nProg].metals = trace_metallicity(tSnap, galIdx, &args)
             # <<<<<
-            SSPs[nProg].sfr = sfr
-        args.nSSP = nProg
+            bursts[nProg].sfr = sfr
+        args.nBurst = nProg
         trace_progenitors(tSnap - 1, args.firstProgenitor[tSnap][galIdx], &args)
-        nProg = args.nSSP + 1
-        pSFHs = SFHs + iG
-        pSFHs.nSSP = nProg
+        nProg = args.nBurst + 1
+        pHistories = histories + iG
+        pHistories.nBurst = nProg
         if nProg == 0:
-            pSFHs.SSPs = NULL
+            pHistories.bursts = NULL
             print "Warning: snapshot %d, index %d"%(tSnap, galIdx)
             print "         the star formation rate is zero throughout the histroy"
         else:
-            memSize = nProg*sizeof(props)
-            pSFHs.SSPs = <props*>malloc(memSize)
-            memcpy(pSFHs.SSPs, SSPs, memSize)
+            memSize = nProg*sizeof(ssp)
+            pHistories.bursts = <ssp*>malloc(memSize)
+            memcpy(pHistories.bursts, bursts, memSize)
             totalMemSize += memSize
 
     print "# %.1f MB memory has been allocted"%(totalMemSize/1024./1024.)
     timing_end()
-    return SFHs
+    return histories
 
 
 cdef gal_params *read_star_formation_history(fname, snapshot, gals, h):
@@ -419,16 +419,16 @@ cdef gal_params *read_star_formation_history(fname, snapshot, gals, h):
         # Read redshift
         galParams.z = meraxes.io.grab_redshift(fname, snapshot)
         # Read lookback time
-        galParams.nAgeList = snapshot
+        galParams.nAgeStep = snapshot
         timeStep = meraxes.io.read_snaplist(fname, h)[2]*1e6 # Convert Myr to yr
-        ageList = np.zeros(snapshot, dtype = 'f8')
+        ageStep = np.zeros(snapshot, dtype = 'f8')
         for iA in xrange(snapshot):
-            ageList[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
-        galParams.ageList = init_1d_double(ageList)
+            ageStep[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
+        galParams.ageStep = init_1d_double(ageStep)
         gals = np.asarray(gals, dtype = 'i4')
         galParams.nGal = len(gals)
         galParams.indices = init_1d_int(gals)
-        galParams.SFHs = trace_properties(snapshot, gals)
+        galParams.histories = trace_properties(snapshot, gals)
     return galParams
 
 
@@ -442,26 +442,26 @@ cdef gal_params *read_star_formation_history(fname, snapshot, gals, h):
 #        int iG
 #        int nGal = len(galIndices)
 #        int *indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-#        prop_set *SFHs = \
+#        csp *histories = \
 #        read_gal_params_by_progenitors(snap, indices, nGal)
 #    free(indices)
 #    free_meraxes(snapMin, snap)
 #    # Convert output to numpy array
 #    cdef:
 #        int iN
-#        int nSSP
-#        props *SSPs
-#        double[:, ::1] mvSSPs
+#        int nBurst
+#        ssp *bursts
+#        double[:, ::1] mvBursts
 #    output = np.empty(nGal, dtype = object)
 #    for iG in xrange(nGal):
-#        nSSP = SFHs[iG].nSSP
-#        SSPs = SFHs[iG].SSPs
-#        mvSSPs = np.zeros([nSSP, 3])
-#        for iN in xrange(nSSP):
-#            mvSSPs[iN][0] = SSPs[iN].index
-#            mvSSPs[iN][1] = SSPs[iN].metals
-#            mvSSPs[iN][2] = SSPs[iN].sfr
-#        output[iG] = np.asarray(mvSSPs)
+#        nBurst = histories[iG].nBurst
+#        bursts = histories[iG].bursts
+#        mvBursts = np.zeros([nBurst, 3])
+#        for iN in xrange(nBurst):
+#            mvBursts[iN][0] = bursts[iN].index
+#            mvBursts[iN][1] = bursts[iN].metals
+#            mvBursts[iN][2] = bursts[iN].sfr
+#        output[iG] = np.asarray(mvBursts)
 #    return output
 
 
@@ -1065,7 +1065,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
-        rawSpectra = read_sed_templates(sedPath, galParams.ageList[galParams.nAgeList - 1], 
+        rawSpectra = read_sed_templates(sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
                                         minWIdx, maxWIdx)
         # Compute spectra
         cOutput = composite_spectra_cext(rawSpectra, galParams,

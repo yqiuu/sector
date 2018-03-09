@@ -259,24 +259,24 @@ inline struct linResult linregress(double *x, double *y, int nPts) {
  * Struct to store galaxy properites                                           *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-struct props {
+struct ssp {
     short index;
     float metals;
     float sfr;
 };
 
-struct prop_set {
-    struct props *SSPs;
-    int nSSP;
+struct csp {
+    struct ssp *bursts;
+    int nBurst;
 };
 
 struct gal_params {
     double z;
-    int nAgeList;
-    double *ageList;
+    int nAgeStep;
+    double *ageStep;
     int nGal;
     int *indices;
-    struct prop_set *SFHs;
+    struct csp *histories;
 };
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -299,8 +299,8 @@ struct sed_params {
 
 // Struct for SED templates after processing
 struct tmp_params {
-    int nAgeList;
-    double *ageList;
+    int nAgeStep;
+    double *ageStep;
     double *integrated;
     double *ready;
     double *working;
@@ -309,13 +309,13 @@ struct tmp_params {
 struct tmp_params *g_spectra = NULL;
 
 struct tmp_params *init_template(struct sed_params *rawSpectra, 
-                                 double *ageList, int nAgeList,
+                                 double *ageStep, int nAgeStep,
                                  int nFlux) {
-    size_t intFluxSize = rawSpectra->nZ*nAgeList*rawSpectra->nWaves*sizeof(double);
-    size_t workingSize = (rawSpectra->maxZ + 1)*nAgeList*nFlux*sizeof(double);
+    size_t intFluxSize = rawSpectra->nZ*nAgeStep*rawSpectra->nWaves*sizeof(double);
+    size_t workingSize = (rawSpectra->maxZ + 1)*nAgeStep*nFlux*sizeof(double);
     struct tmp_params *spectra = malloc(sizeof(struct tmp_params));
-    spectra->ageList = ageList;
-    spectra->nAgeList = nAgeList;
+    spectra->ageStep = ageStep;
+    spectra->nAgeStep = nAgeStep;
     spectra->integrated = (double*)malloc(intFluxSize);
     spectra->ready = (double*)malloc(intFluxSize);
     spectra->working = (double*)malloc(workingSize);
@@ -333,7 +333,7 @@ void free_spectra(void) {
 
 
 void templates_time_integration(struct sed_params *rawSpectra, 
-                                double *ageList, int nAgeList) {
+                                double *ageStep, int nAgeStep) {
     int iA, iW, iZ;
     double *pData;
 
@@ -357,21 +357,21 @@ void templates_time_integration(struct sed_params *rawSpectra,
     data = rawSpectra->data;
     intData = g_spectra->integrated;
     for(iZ = 0; iZ < nZ; ++iZ) 
-        for(iA = 0; iA < nAgeList; ++iA) {
-            pData = intData + (iZ*nAgeList + iA)*nWaves;
+        for(iA = 0; iA < nAgeStep; ++iA) {
+            pData = intData + (iZ*nAgeStep + iA)*nWaves;
             for(iW = 0; iW < nWaves; ++iW) {
                 if (iA == 0) 
                     // The first time step of SED templates is typicall not zero
                     // Here assumes that the templates is zero beween zero
                     // and the first time step
                     pData[iW] = trapz_table(data + (iZ*nWaves + iW)*nAge, age, nAge, 
-                                            age[0], ageList[iA]);
+                                            age[0], ageStep[iA]);
                 else
                     pData[iW] = trapz_table(data + (iZ*nWaves + iW)*nAge, age, nAge, 
-                                            ageList[iA - 1], ageList[iA]);
+                                            ageStep[iA - 1], ageStep[iA]);
             }
         }
-    memcpy(g_spectra->ready, g_spectra->integrated, nZ*nAgeList*nWaves*sizeof(double));
+    memcpy(g_spectra->ready, g_spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));
     #ifdef TIMING
         timing_end();
     #endif
@@ -404,8 +404,8 @@ inline double *dust_absorption(struct sed_params *rawSpectra, struct dust_params
     double *waves = rawSpectra->waves;
     int nZ = rawSpectra->nZ;
 
-    int nAge = g_spectra->nAgeList;
-    double *age = g_spectra->ageList;
+    int nAge = g_spectra->nAgeStep;
+    double *age = g_spectra->ageStep;
     memcpy(g_spectra->ready, g_spectra->integrated, nZ*nAge*nWaves*sizeof(double));
     double *data = g_spectra->ready;
 
@@ -504,7 +504,7 @@ inline void templates_working(struct sed_params *rawSpectra,
     double *waves = rawSpectra->waves;
     int nZ = rawSpectra->nZ;
 
-    int nAge = g_spectra->nAgeList;
+    int nAge = g_spectra->nAgeStep;
     double *readyData = g_spectra->ready;
     double *workingData = g_spectra->working;
 
@@ -644,21 +644,21 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
 
     // Initialise galaxies parameters
     double z = galParams->z;
-    int nAgeList= galParams->nAgeList;
-    double *ageList = galParams->ageList;
+    int nAgeStep= galParams->nAgeStep;
+    double *ageStep = galParams->ageStep;
     int nGal = galParams->nGal;
-    struct prop_set *SFHs = galParams->SFHs;
+    struct csp *histories = galParams->histories;
 
-    struct prop_set *pSFHs;
-    struct props *pSSPs;
+    struct csp *pHistories;
+    struct ssp *pBursts;
     int nProg;
     double sfr;
     int metals;
 
     // Generate templates
     if (g_spectra == NULL) {
-        g_spectra = init_template(rawSpectra, ageList, nAgeList, nFlux);
-        templates_time_integration(rawSpectra, ageList, nAgeList);
+        g_spectra = init_template(rawSpectra, ageStep, nAgeStep, nFlux);
+        templates_time_integration(rawSpectra, ageStep, nAgeStep);
     }
     double *fluxTmp = g_spectra->working;
     double *flux = malloc(nFlux*sizeof(double));
@@ -696,17 +696,17 @@ float *composite_spectra_cext(struct sed_params *rawSpectra,
             #endif
         }
         // Sum contributions from all progenitors
-        pSFHs = SFHs + iG;
-        nProg = pSFHs->nSSP;
+        pHistories = histories + iG;
+        nProg = pHistories->nBurst;
         for(iP = 0; iP < nProg; ++iP) {
-            pSSPs = pSFHs->SSPs + iP;
-            sfr = pSSPs->sfr;
-            metals = (int)(pSSPs->metals*1000 - .5);
+            pBursts = pHistories->bursts + iP;
+            sfr = pBursts->sfr;
+            metals = (int)(pBursts->metals*1000 - .5);
             if (metals < minZ)
                 metals = minZ;
             else if (metals > maxZ)
                 metals = maxZ;
-            pData = fluxTmp + (metals*nAgeList + pSSPs->index)*nFlux;
+            pData = fluxTmp + (metals*nAgeStep + pBursts->index)*nFlux;
             for(iF = 0 ; iF < nFlux; ++iF)
                 flux[iF] += sfr*pData[iF];
         }

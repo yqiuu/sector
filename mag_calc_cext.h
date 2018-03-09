@@ -20,26 +20,26 @@ struct dust_params {
 };
 
 
-struct props {
+struct ssp {
     short index;
     float metals;
     float sfr;
 };
 
 
-struct prop_set {
-    struct props *SSPs;
-    int nSSP;
+struct csp {
+    struct ssp *bursts;
+    int nBurst;
 };
 
 
 struct gal_params {
     double z;
-    int nAgeList;
-    double *ageList;
+    int nAgeStep;
+    double *ageStep;
     int nGal;
     int *indices;
-    struct prop_set *SFHs;
+    struct csp *histories;
 };
 
 
