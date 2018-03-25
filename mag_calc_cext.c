@@ -322,11 +322,12 @@ void free_spectra(struct sed_params *spectra) {
 }
 
 
-void templates_time_integration(struct sed_params *spectra, 
-                                double *ageStep, int nAgeStep) {
+void templates_time_integration(struct sed_params *spectra) {
     int iA, iW, iZ;
     double *pData;
 
+    int nAgeStep = spectra->nAgeStep;
+    double *ageStep = spectra->ageStep;
     int nAge;
     double *age;
     int nWaves; 
@@ -638,7 +639,6 @@ float *composite_spectra_cext(struct sed_params *spectra,
     double *ageStep = galParams->ageStep;
     int nGal = galParams->nGal;
     struct csp *histories = galParams->histories;
-
     struct csp *pHistories;
     struct ssp *pBursts;
     int nProg;
@@ -647,7 +647,7 @@ float *composite_spectra_cext(struct sed_params *spectra,
 
     // Generate templates
     init_template(spectra, ageStep, nAgeStep, nFlux);
-    templates_time_integration(spectra, ageStep, nAgeStep);
+    templates_time_integration(spectra);
 
     double *fluxTmp = spectra->working;
     double *flux = malloc(nFlux*sizeof(double));
