@@ -623,23 +623,20 @@ inline void templates_working(struct sed_params *spectra,
  * Primary Functions                                                           *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-float *composite_spectra_cext(struct sed_params *spectra,
-                              struct gal_params *galParams,
-                              double *filters, double* logWaves, int nFlux, int nObs,
-                              double *absorption, struct dust_params *dustArgs,
-                              short outType, short nThread) {
+double *composite_spectra_cext(struct sed_params *spectra,
+                               struct gal_params *galParams,
+                               double *filters, double* logWaves, int nFlux, int nObs,
+                               double *absorption, struct dust_params *dustArgs,
+                               short outType, short nThread) {
     g_nThread = nThread;
 
     int iF, iG, iP, iFG;
-    double *pData;
-
     // Initialise galaxies parameters
     double z = galParams->z;
     int nAgeStep= galParams->nAgeStep;
     double *ageStep = galParams->ageStep;
     int nGal = galParams->nGal;
-    struct csp *histories = galParams->histories;
-    struct csp *pHistories;
+    struct csp *pHistories = galParams->histories;
     struct ssp *pBursts;
     int nProg;
     double sfr;
@@ -648,12 +645,15 @@ float *composite_spectra_cext(struct sed_params *spectra,
     // Generate templates
     init_template(spectra, ageStep, nAgeStep, nFlux);
     templates_time_integration(spectra);
+    double *workingTmp = spectra->working;
+    double *pWorkingTmp;
 
-    double *fluxTmp = spectra->working;
-    double *flux = malloc(nFlux*sizeof(double));
-
-    float *output = malloc(nGal*nFlux*sizeof(float));
-    float *pOutput = output;
+    // Initialise outputs
+    double *output = malloc(nGal*nFlux*sizeof(double));
+    double *pOutput = output;
+    for(iFG = 0; iFG < nGal*nFlux; ++iFG)
+        *pOutput++ = TOL;
+    pOutput = output;
 
     int minZ = spectra->minZ;
     int maxZ = spectra->maxZ;
@@ -664,9 +664,6 @@ float *composite_spectra_cext(struct sed_params *spectra,
     if (dustArgs == NULL)
         templates_working(spectra, absorption, z, filters, nFlux, nObs);
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
-        // Initialise fluxes
-        for(iF = 0; iF < nFlux; ++iF)
-            flux[iF] = TOL;
         // Add dust absorption to SED templates
         #ifdef TIMING
             if (iG < 10)
@@ -685,7 +682,6 @@ float *composite_spectra_cext(struct sed_params *spectra,
             #endif
         }
         // Sum contributions from all progenitors
-        pHistories = histories + iG;
         nProg = pHistories->nBurst;
         for(iP = 0; iP < nProg; ++iP) {
             pBursts = pHistories->bursts + iP;
@@ -695,26 +691,24 @@ float *composite_spectra_cext(struct sed_params *spectra,
                 metals = minZ;
             else if (metals > maxZ)
                 metals = maxZ;
-            pData = fluxTmp + (metals*nAgeStep + pBursts->index)*nFlux;
+            pWorkingTmp = workingTmp + (metals*nAgeStep + pBursts->index)*nFlux;
             for(iF = 0 ; iF < nFlux; ++iF)
-                flux[iF] += sfr*pData[iF];
+                pOutput[iF] += sfr*pWorkingTmp[iF];
         }
+        ++pHistories;
+        pOutput += nFlux;
         #ifdef TIMING
-                if (iG < 10) {
-                    timing_end_sub("Sum contributions from all progenitors\n");
-                    printf("# \n");
-                }
+            if (iG < 10) {
+                timing_end_sub("Sum contributions from all progenitors\n");
+                printf("# \n");
+            }
         #endif
-        // Store output
-        for(iF = 0; iF < nFlux; ++iF) 
-            *pOutput++ = (float)flux[iF];
     }
-    free(flux);
     free_spectra(spectra);
 
     if (outType == 0) {
         pOutput = output;
-        for(iFG = 0; iFG < nFlux*nGal; iFG++) {
+        for(iFG = 0; iFG < nFlux*nGal; ++iFG) {
             *pOutput = M_AB(*pOutput);
             ++pOutput;
         }
@@ -734,9 +728,9 @@ float *composite_spectra_cext(struct sed_params *spectra,
     int nR = 3;
     struct linResult result;
 
-    output = (float*)realloc(output, (nFlux + nR)*nGal*sizeof(float));
+    output = (double*)realloc(output, (nFlux + nR)*nGal*sizeof(double));
     pOutput = output + nFlux*nGal;
-    float *pFit = output;
+    double *pFit = output;
 
     int nFit = nFlux - 1;
     double *logf = malloc(nFit*sizeof(double));
@@ -751,9 +745,9 @@ float *composite_spectra_cext(struct sed_params *spectra,
 
         //printf("waves = %.1f, logf = %.1f\n", logWaves[1], logf[1]);
         result = linregress(logWaves, logf, nFit);
-        pOutput[0] = (float)result.slope;
-        pOutput[1] = (float)result.intercept;
-        pOutput[2] = (float)result.R;
+        pOutput[0] = (double)result.slope;
+        pOutput[1] = (double)result.intercept;
+        pOutput[2] = (double)result.R;
         pOutput += nR;
         //printf("Slope = %.1f\n", result.slope);
     }

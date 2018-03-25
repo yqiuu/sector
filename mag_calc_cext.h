@@ -48,8 +48,8 @@ struct gal_params {
 };
 
 
-float *composite_spectra_cext(struct sed_params *rawSpectra,
-                              struct gal_params *galParams,
-                              double *filters, double *logWaves, int nFlux, int nObs,
-                              double *absorption, struct dust_params *dustArgs,
-                              short outType, short nThread);
+double *composite_spectra_cext(struct sed_params *rawSpectra,
+                               struct gal_params *galParams,
+                               double *filters, double *logWaves, int nFlux, int nObs,
+                               double *absorption, struct dust_params *dustArgs,
+                               short outType, short nThread);

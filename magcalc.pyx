@@ -897,7 +897,7 @@ def get_output_name(prefix, postfix, snap, path):
 
 
 cdef extern from "mag_calc_cext.h" nogil:
-    float *composite_spectra_cext(sed_params *spectra,
+    double *composite_spectra_cext(sed_params *spectra,
                                   gal_params *galParams,
                                   double *filters, double *logWaves, int nFlux, int nObs,
                                   double *absorption, dust_params *dustArgs,
@@ -1030,8 +1030,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
         dust_params *dustArgs = NULL
 
-        float *cOutput 
-        float[:] mvOutput
+        double *cOutput 
+        double[:] mvOutput
 
     for iS in xrange(nSnap):
         # Read star formation rates and metallcities form galaxy merger trees
@@ -1077,13 +1077,13 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
                                          cOutType, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':
-            mvOutput = <float[:nGal*(nFlux + nR)]>cOutput
+            mvOutput = <double[:nGal*(nFlux + nR)]>cOutput
             output = np.hstack([np.asarray(mvOutput[nGal*nFlux:], 
                                            dtype = 'f4').reshape(nGal, -1),
                                 np.asarray(mvOutput[:nGal*nFlux], 
                                            dtype = 'f4').reshape(nGal, -1)])
         else:
-            mvOutput = <float[:nGal*nFlux]>cOutput
+            mvOutput = <double[:nGal*nFlux]>cOutput
             output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
         # Convert apparent magnitudes to absolute magnitudes
         if outType == 'ph' and nObs > 0:
