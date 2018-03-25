@@ -1,13 +1,18 @@
 struct sed_params {
-    double *Z;
-    int nZ;
     int minZ;
     int maxZ;
-    double *waves;
+    int nZ;
+    double *Z;
     int nWaves;
-    double *age;
+    double *waves;
     int nAge;
-    double *data;
+    double *age;
+    int nAgeStep;
+    double *ageStep;
+    double *raw;
+    double *integrated;
+    double *ready;
+    double *working;
 };
 
 

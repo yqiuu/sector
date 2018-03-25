@@ -805,10 +805,13 @@ cdef extern from "mag_calc_cext.h":
         int nWaves
         double *age
         int nAge
-        double *data
+        double *raw
+        double *integrated
+        double *ready
+        double *working
 
 
-cdef sed_params *read_sed_templates(path, maxAge, minWIdx, maxWIdx):
+cdef sed_params *read_raw_templates(path, maxAge, minWIdx, maxWIdx):
     #=====================================================================
     # The dictionary define by *path* should contain:                               
     #                                                                               
@@ -826,13 +829,13 @@ cdef sed_params *read_sed_templates(path, maxAge, minWIdx, maxWIdx):
     # be metallicity, wavelength and stellar age respectively.
     #=====================================================================
     timing_start("# Read SED templates")
-    cdef sed_params *rawSpectra = <sed_params*>malloc(sizeof(sed_params))
+    cdef sed_params *spectra = <sed_params*>malloc(sizeof(sed_params))
     # Read metallicity range
     Z = np.load(os.path.join(path, "sed_Z.npy"))
-    rawSpectra.Z = init_1d_double(Z)
-    rawSpectra.nZ = len(Z)
-    rawSpectra.minZ = <short>(Z.min()*1000 - 0.5)
-    rawSpectra.maxZ = <short>(Z.max()*1000 - 0.5)
+    spectra.Z = init_1d_double(Z)
+    spectra.nZ = len(Z)
+    spectra.minZ = <short>(Z.min()*1000 - 0.5)
+    spectra.maxZ = <short>(Z.max()*1000 - 0.5)
     print "# Metallicity range: %.3f to %.3f"%(Z[0], Z[-1])
     # Read wavelength
     waves = np.load(os.path.join(path, "sed_waves.npy"))
@@ -843,22 +846,22 @@ cdef sed_params *read_sed_templates(path, maxAge, minWIdx, maxWIdx):
         maxWIdx = len(waves) - 1
     waves = waves[minWIdx:maxWIdx + 1]
     print "# Shrinked wavelength range: %.1f angstrom to %.1f angstrom"%(waves[0], waves[-1])
-    rawSpectra.waves = init_1d_double(waves)
-    rawSpectra.nWaves = len(waves)
+    spectra.waves = init_1d_double(waves)
+    spectra.nWaves = len(waves)
     # Read stellar age
     age = np.load(os.path.join(path, "sed_age.npy"))
     print "# Stellar age range: %.2f Myr to %.2f Myr"%(age[0]*1e-6, age[-1]*1e-6)
     maxAIdx = np.where(age <= maxAge)[0][-1] + 1
     age = age[:maxAIdx + 1]
     print "# Shrinked stellar age range: %.2f Myr to %.2f Myr"%(age[0]*1e-6, age[-1]*1e-6)
-    rawSpectra.age = init_1d_double(age)
-    rawSpectra.nAge = len(age)
+    spectra.age = init_1d_double(age)
+    spectra.nAge = len(age)
     # Read flux
     flux = np.load(os.path.join(path, "sed_flux.npy"))[:, minWIdx:maxWIdx + 1, :maxAIdx + 1]
     flux = flux.flatten()
-    rawSpectra.data = init_1d_double(flux)
+    spectra.raw = init_1d_double(flux)
     timing_end()
-    return rawSpectra
+    return spectra
 
 
 def get_wavelength(path):
@@ -868,10 +871,10 @@ def get_wavelength(path):
     return np.load(os.path.join(path, "sed_waves.npy"))
 
 
-cdef void free_raw_spectra(sed_params *rawSpectra):
-    free(rawSpectra.age)
-    free(rawSpectra.waves)
-    free(rawSpectra.data)
+cdef void free_raw_spectra(sed_params *spectra):
+    free(spectra.age)
+    free(spectra.waves)
+    free(spectra.raw)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -894,7 +897,7 @@ def get_output_name(prefix, postfix, snap, path):
 
 
 cdef extern from "mag_calc_cext.h" nogil:
-    float *composite_spectra_cext(sed_params *rawSpectra,
+    float *composite_spectra_cext(sed_params *spectra,
                                   gal_params *galParams,
                                   double *filters, double *logWaves, int nFlux, int nObs,
                                   double *absorption, dust_params *dustArgs,
@@ -1007,7 +1010,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
     waves = get_wavelength(sedPath)
     cdef:
-        sed_params *rawSpectra = NULL
+        sed_params *spectra = NULL
         gal_params *galParams = NULL 
         double z
         int nGal
@@ -1065,10 +1068,10 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
-        rawSpectra = read_sed_templates(sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
-                                        minWIdx, maxWIdx)
+        spectra = read_raw_templates(sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
+                                     minWIdx, maxWIdx)
         # Compute spectra
-        cOutput = composite_spectra_cext(rawSpectra, galParams,
+        cOutput = composite_spectra_cext(spectra, galParams,
                                          filters, logWaves, nFlux, nObs,
                                          absorption, dustArgs,
                                          cOutType, nThread)
@@ -1120,7 +1123,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         free(cOutput)
         free(logWaves)
 
-    free_raw_spectra(rawSpectra)
+    free_raw_spectra(spectra)
     if type(gals[0]) is not str:
         free_meraxes(snapMin, snapMax)
 
