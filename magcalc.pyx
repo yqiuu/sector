@@ -1111,7 +1111,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
        
         if len(snapList) == 1:
-            mags = DataFrame(deepcopy(output), index = gals[0], columns = columns)
+            mags = DataFrame(deepcopy(output), index = indices, columns = columns)
 
         free_gal_params(galParams)
         free(dustArgs)
