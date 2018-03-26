@@ -898,9 +898,9 @@ def get_output_name(prefix, postfix, snap, path):
 
 cdef extern from "mag_calc_cext.h" nogil:
     double *composite_spectra_cext(sed_params *spectra,
-                                  gal_params *galParams,
+                                  gal_params *galParams, dust_params *dustParams,
                                   double *filters, double *logWaves, int nFlux, int nObs,
-                                  double *absorption, dust_params *dustParams,
+                                  double *absorption, 
                                   short outType, short nThread)
 
 
@@ -1071,9 +1071,9 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         spectra = read_raw_templates(sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
                                      minWIdx, maxWIdx)
         # Compute spectra
-        cOutput = composite_spectra_cext(spectra, galParams,
+        cOutput = composite_spectra_cext(spectra, galParams, dustParams,
                                          filters, logWaves, nFlux, nObs,
-                                         absorption, dustParams,
+                                         absorption, 
                                          cOutType, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':

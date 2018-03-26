@@ -49,7 +49,7 @@ struct gal_params {
 
 
 double *composite_spectra_cext(struct sed_params *spectra,
-                               struct gal_params *galParams,
+                               struct gal_params *galParams, struct dust_params *dustParams,
                                double *filters, double *logWaves, int nFlux, int nObs,
-                               double *absorption, struct dust_params *dustParams,
+                               double *absorption, 
                                short outType, short nThread);
