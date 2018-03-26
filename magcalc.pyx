@@ -681,23 +681,23 @@ cdef extern from "mag_calc_cext.h":
         double tBC
 
 
-cdef dust_params *dust_parameters(dustParams):
+cdef dust_params *init_dust_parameters(dust):
     cdef:
         int iG
-        int nGal = len(dustParams)
-        double[:, ::1] mvDustParams = np.array(dustParams)
-        dust_params *dustArgs = <dust_params*>malloc(nGal*sizeof(dust_params))
-        dust_params *pDustArgs 
+        int nGal = len(dust)
+        double[:, ::1] mvDustParams = np.array(dust)
+        dust_params *dustParams = <dust_params*>malloc(nGal*sizeof(dust_params))
+        dust_params *pDustParams = dustParams
 
     for iG in xrange(nGal):
-        pDustArgs = dustArgs + iG
-        pDustArgs.tauUV_ISM = mvDustParams[iG, 0]
-        pDustArgs.nISM = mvDustParams[iG, 1]
-        pDustArgs.tauUV_BC = mvDustParams[iG, 2]
-        pDustArgs.nBC = mvDustParams[iG, 3]
-        pDustArgs.tBC = mvDustParams[iG, 4]
+        pDustParams.tauUV_ISM = mvDustParams[iG, 0]
+        pDustParams.nISM = mvDustParams[iG, 1]
+        pDustParams.tauUV_BC = mvDustParams[iG, 2]
+        pDustParams.nBC = mvDustParams[iG, 3]
+        pDustParams.tBC = mvDustParams[iG, 4]
+        pDustParams += 1
 
-    return dustArgs
+    return dustParams
  
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -900,12 +900,12 @@ cdef extern from "mag_calc_cext.h" nogil:
     double *composite_spectra_cext(sed_params *spectra,
                                   gal_params *galParams,
                                   double *filters, double *logWaves, int nFlux, int nObs,
-                                  double *absorption, dust_params *dustArgs,
+                                  double *absorption, dust_params *dustParams,
                                   short outType, short nThread)
 
 
 def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
-                      IGM = 'I2014', dustParams = None,
+                      dust = None, IGM = 'I2014', 
                       outType = 'ph', 
                       restBands = [[1600, 100],], obsBands = [], obsFrame = False,
                       prefix = 'mags', outPath = './',
@@ -931,15 +931,15 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         calculate the luminosity distance.
     sedPath: str
         Full path to SED templates.
+    dust: ndarray
+        Parameters for the dust model. It should have a shape of
+        ``(len(snapList), len(gals), 5)``. The five parameters are
+        tauUV_ISM, nISM, tauUV_BC, nBC, tBC.
     IGM: str
         Method to calculate the transmission due to the Lyman
         absorption. It can only be 'I2014'. It is only applicable
         to observer frame quantities.
-    dustParams: ndarray
-        Parameters for the dust model. It should have a shape of
-        ``(len(snapList), len(gals), 5)``. The five parameters are
-        tauUV_ISM, nISM, tauUV_BC, nBC, tBC.
-    outTypestr
+    outType: str
         If 'ph', output AB magnitudes in filters given by restBands
         and obsBands.
 
@@ -1028,7 +1028,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
         double *absorption = NULL
 
-        dust_params *dustArgs = NULL
+        dust_params *dustParams = NULL
 
         double *cOutput 
         double[:] mvOutput
@@ -1039,8 +1039,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         z = galParams.z
         nGal = galParams.nGal
         # Convert the format of dust parameters 
-        if dustParams is not None:
-            dustArgs = dust_parameters(dustParams[iS])
+        if dust is not None:
+            dustParams = init_dust_parameters(dust[iS])
         # Compute the transmission of the IGM
         if IGM == 'I2014':
             absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
@@ -1073,7 +1073,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         # Compute spectra
         cOutput = composite_spectra_cext(spectra, galParams,
                                          filters, logWaves, nFlux, nObs,
-                                         absorption, dustArgs,
+                                         absorption, dustParams,
                                          cOutType, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':
@@ -1117,7 +1117,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             mags = DataFrame(deepcopy(output), index = indices, columns = columns)
 
         free_gal_params(galParams)
-        free(dustArgs)
+        free(dustParams)
         free(absorption)
         free(filters)
         free(cOutput)
