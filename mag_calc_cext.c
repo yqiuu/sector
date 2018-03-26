@@ -378,7 +378,7 @@ struct dust_params {
 };
 
 
-inline double *dust_absorption(struct sed_params *spectra, struct dust_params *dustArgs) {
+inline double *dust_absorption(struct sed_params *spectra, struct dust_params *dustParams) {
     /* tBC: life time of the birth clound
      * nu: fraction of ISM dust absorption
      * tauUV: V-band absorption optical depth
@@ -388,52 +388,52 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
      * Reference: da Cunha et al. 2008
      */
     
-    int nRawAge = spectra->nAge;
-    double *rawAge = spectra->age;
+    int nAge = spectra->nAge;
+    double *age = spectra->age;
     double *rawData = spectra->raw;
     int nWaves = spectra->nWaves;
     double *waves = spectra->waves;
     int nZ = spectra->nZ;
 
-    int nAge = spectra->nAgeStep;
-    double *age = spectra->ageStep;
-    memcpy(spectra->ready, spectra->integrated, nZ*nAge*nWaves*sizeof(double));
+    int nAgeStep = spectra->nAgeStep;
+    double *ageStep = spectra->ageStep;
+    memcpy(spectra->ready, spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));
     double *data = spectra->ready;
 
     int iAgeBC;
     double t0, t1;
 
-    double tauUV_ISM = dustArgs->tauUV_ISM;
-    double nISM = dustArgs->nISM;
-    double tauUV_BC = dustArgs->tauUV_BC;
-    double nBC = dustArgs->nBC;
-    double tBC = dustArgs->tBC;
+    double tauUV_ISM = dustParams->tauUV_ISM;
+    double nISM = dustParams->nISM;
+    double tauUV_BC = dustParams->tauUV_BC;
+    double nBC = dustParams->nBC;
+    double tBC = dustParams->tBC;
 
     double *transISM = malloc(nWaves*sizeof(double));
     double *transBC = malloc(nWaves*sizeof(double));
 
     // Find the time inverval containning the birth cloud
-    if (tBC >= age[nAge - 1]) {
-        iAgeBC = nAge;
+    if (tBC >= ageStep[nAgeStep - 1]) {
+        iAgeBC = nAgeStep;
         t0 = 0.;
         t1 = 0.;
     }
-    else if(tBC < age[0]) {
+    else if(tBC < ageStep[0]) {
         iAgeBC = 0;
-        t0 = rawAge[0];
-        t1 = age[0];
+        t0 = age[0];
+        t1 = ageStep[0];
     }
     else {
-        iAgeBC = bisection_search(tBC, age, nAge) + 1;
-        t0 = age[iAgeBC - 1];
-        t1 = age[iAgeBC];
+        iAgeBC = bisection_search(tBC, ageStep, nAgeStep) + 1;
+        t0 = ageStep[iAgeBC - 1];
+        t1 = ageStep[iAgeBC];
     } 
     
     // Compute the optical depth of both the birth cloud and the ISM
     #pragma omp parallel \
     default(none) \
-    firstprivate(nRawAge, rawAge, rawData, \
-                 nWaves, waves, nZ, nAge, age, data, \
+    firstprivate(nAge, age, rawData, \
+                 nWaves, waves, nZ, nAgeStep, ageStep, data, \
                  iAgeBC, t0, t1, \
                  tauUV_ISM, nISM, tauUV_BC, nBC, tBC, \
                  transISM, transBC) \
@@ -451,15 +451,15 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
         }
         
         // t_s < tBC < t_s + dt
-        if (iAgeBC != nAge) {
+        if (iAgeBC != nAgeStep) {
             n = nZ*nWaves;
             #pragma omp for schedule(static,1) 
             for(i = 0; i < n; ++i) {
                 iW = i%nWaves;
-                pData = data + (i/nWaves*nAge + iAgeBC)*nWaves;
+                pData = data + (i/nWaves*nAgeStep + iAgeBC)*nWaves;
                 pData[iW] = transBC[iW] \
-                    *trapz_table(rawData + i*nRawAge, rawAge, nRawAge, t0, tBC) \
-                    + trapz_table(rawData + i*nRawAge, rawAge, nRawAge, tBC, t1);
+                    *trapz_table(rawData + i*nAge, age, nAge, t0, tBC) \
+                    + trapz_table(rawData + i*nAge, age, nAge, tBC, t1);
             }     
         }
         
@@ -467,12 +467,12 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
         n = iAgeBC*nZ;
         #pragma omp for schedule(static,1) 
         for(i = 0; i < n; ++i) {
-            pData = data + (i/iAgeBC*nAge + i%iAgeBC)*nWaves;
+            pData = data + (i/iAgeBC*nAgeStep + i%iAgeBC)*nWaves;
             for(iW = 0; iW < nWaves; ++iW) 
                 pData[iW] *= transBC[iW];
         }
         
-        n = nAge*nZ;
+        n = nAgeStep*nZ;
         #pragma omp for schedule(static,1) 
         for(i = 0; i < n; ++i) {
             pData = data + i*nWaves;
@@ -626,7 +626,7 @@ inline void templates_working(struct sed_params *spectra,
 double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams,
                                double *filters, double* logWaves, int nFlux, int nObs,
-                               double *absorption, struct dust_params *dustArgs,
+                               double *absorption, struct dust_params *dustParams,
                                short outType, short nThread) {
     g_nThread = nThread;
 
@@ -661,7 +661,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     #ifdef TIMING
         timing_start("Compute magnitudes\n");
     #endif
-    if (dustArgs == NULL)
+    if (dustParams == NULL)
         templates_working(spectra, absorption, z, filters, nFlux, nObs);
     for(iG = 0; iG < nGal; report(iG++, nGal)) {
         // Add dust absorption to SED templates
@@ -669,8 +669,8 @@ double *composite_spectra_cext(struct sed_params *spectra,
             if (iG < 10)
                 timing_start_sub();
         #endif
-        if (dustArgs != NULL) {
-            dust_absorption(spectra, dustArgs + iG);
+        if (dustParams != NULL) {
+            dust_absorption(spectra, dustParams + iG);
             #ifdef TIMING
                 if (iG < 10)
                     timing_end_sub("Add dust absorption to SED templates\n");
