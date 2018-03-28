@@ -347,7 +347,7 @@ void free_filters(struct sed_params *spectra) {
 }
 
 
-void templates_time_integration(struct sed_params *spectra) {
+void integrate_templates_raw(struct sed_params *spectra) {
     int iA, iW, iZ;
     double *pData;
 
@@ -672,7 +672,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     int nFlux = spectra->nFlux;
     double *logWaves = spectra->logWaves;
     init_templates_working(spectra, ageStep, nAgeStep, nFlux);
-    templates_time_integration(spectra);
+    integrate_templates_raw(spectra);
     double *workingTmp = spectra->working;
     double *pWorkingTmp;
 
