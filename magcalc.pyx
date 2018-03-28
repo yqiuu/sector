@@ -790,6 +790,14 @@ def beta_filters(waves):
     return centreWaves, filters.flatten(), minWIdx, maxWIdx
 
 
+cdef extern from "mag_calc_cext.h":
+    void init_filters(sed_params *spectra, double *filters, int nFlux, int nObs,
+                      double *logWaves, double *LyAbsorption)
+
+
+    void free_filters(sed_params *spectra)
+
+
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
 # Functions to read SED templates                                               #
@@ -797,21 +805,31 @@ def beta_filters(waves):
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 cdef extern from "mag_calc_cext.h":
     struct sed_params:
-        double *Z
-        int nZ
+        # Raw templates
         int minZ
         int maxZ
-        double *waves
+        int nZ
+        double *Z
         int nWaves
-        double *age
+        double *waves
         int nAge
+        double *age
         double *raw
+        # Filters
+        int nFlux
+        int nObs
+        double *filters
+        double *logWaves
+        double *LyAbsorption
+        # Working templates
+        int nAgeStep
+        double *ageStep
         double *integrated
         double *ready
         double *working
 
 
-cdef sed_params *read_raw_templates(path, maxAge, minWIdx, maxWIdx):
+cdef void init_raw_templates(sed_params *spectra, path, maxAge, minWIdx, maxWIdx):
     #=====================================================================
     # The dictionary define by *path* should contain:                               
     #                                                                               
@@ -829,7 +847,6 @@ cdef sed_params *read_raw_templates(path, maxAge, minWIdx, maxWIdx):
     # be metallicity, wavelength and stellar age respectively.
     #=====================================================================
     timing_start("# Read SED templates")
-    cdef sed_params *spectra = <sed_params*>malloc(sizeof(sed_params))
     # Read metallicity range
     Z = np.load(os.path.join(path, "sed_Z.npy"))
     spectra.Z = init_1d_double(Z)
@@ -861,7 +878,6 @@ cdef sed_params *read_raw_templates(path, maxAge, minWIdx, maxWIdx):
     flux = flux.flatten()
     spectra.raw = init_1d_double(flux)
     timing_end()
-    return spectra
 
 
 def get_wavelength(path):
@@ -898,10 +914,8 @@ def get_output_name(prefix, postfix, snap, path):
 
 cdef extern from "mag_calc_cext.h" nogil:
     double *composite_spectra_cext(sed_params *spectra,
-                                  gal_params *galParams, dust_params *dustParams,
-                                  double *filters, double *logWaves, int nFlux, int nObs,
-                                  double *absorption, 
-                                  short outType, short nThread)
+                                   gal_params *galParams, dust_params *dustParams,
+                                   short outType, short nThread)
 
 
 def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
@@ -1010,7 +1024,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
     waves = get_wavelength(sedPath)
     cdef:
-        sed_params *spectra = NULL
+        sed_params spectra
         gal_params *galParams = NULL 
         double z
         int nGal
@@ -1052,11 +1066,13 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             nRest = len(restBands)
             nObs = len(obsBands)
             nFlux = nRest + nObs
+            init_filters(&spectra, filters, nFlux, nObs, NULL, absorption)
             cOutType = 0
         elif outType == 'sp':
             nFlux = nWaves
             if obsFrame:
                 nObs = nWaves
+            init_filters(&spectra, NULL, nFlux, nObs, NULL, absorption)
             cOutType = 1
         elif outType == 'UV slope':
             centreWaves, betaFilters, minWIdx, maxWIdx = beta_filters(waves)
@@ -1064,16 +1080,15 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             filters = init_1d_double(betaFilters)
             nRest = len(centreWaves)
             nFlux = nRest
+            init_filters(&spectra, filters, nFlux, nObs, logWaves, absorption)
             cOutType = 2
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
-        spectra = read_raw_templates(sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
-                                     minWIdx, maxWIdx)
+        init_raw_templates(&spectra, sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
+                           minWIdx, maxWIdx)
         # Compute spectra
-        cOutput = composite_spectra_cext(spectra, galParams, dustParams,
-                                         filters, logWaves, nFlux, nObs,
-                                         absorption, 
+        cOutput = composite_spectra_cext(&spectra, galParams, dustParams,
                                          cOutType, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':
@@ -1123,7 +1138,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         free(cOutput)
         free(logWaves)
 
-    free_raw_spectra(spectra)
+    free_raw_spectra(&spectra)
     if type(gals[0]) is not str:
         free_meraxes(snapMin, snapMax)
 

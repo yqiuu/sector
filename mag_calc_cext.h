@@ -1,4 +1,5 @@
 struct sed_params {
+    // Raw templates
     int minZ;
     int maxZ;
     int nZ;
@@ -7,13 +8,27 @@ struct sed_params {
     double *waves;
     int nAge;
     double *age;
+    double *raw;
+    // Filters
+    int nFlux;
+    int nObs;
+    double *filters;
+    double *logWaves;
+    double *LyAbsorption;
+    // Working templates
     int nAgeStep;
     double *ageStep;
-    double *raw;
     double *integrated;
     double *ready;
     double *working;
 };
+
+
+void init_filters(struct sed_params *spectra, double *filters, int nFlux, int nObs,
+                  double *logWaves, double *LyAbsorption);
+
+
+void free_filters(struct sed_params *spectra);
 
 
 struct dust_params {
@@ -50,6 +65,4 @@ struct gal_params {
 
 double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams, struct dust_params *dustParams,
-                               double *filters, double *logWaves, int nFlux, int nObs,
-                               double *absorption, 
                                short outType, short nThread);
