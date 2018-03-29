@@ -12,8 +12,11 @@ struct sed_params {
     // Filters
     int nFlux;
     int nObs;
+    int *nFilterWaves;
+    double *filterWaves;
     double *filters;
     double *logWaves;
+    // IGM absorption
     double *LyAbsorption;
     // Working templates
     int nAgeStep;
@@ -24,11 +27,11 @@ struct sed_params {
 };
 
 
-void init_filters(struct sed_params *spectra, double *filters, int nFlux, int nObs,
-                  double *logWaves, double *LyAbsorption);
+//void init_filters(struct sed_params *spectra, double *filters, int nFlux, int nObs,
+//                  double *logWaves, double *LyAbsorption);
 
 
-void free_filters(struct sed_params *spectra);
+//void free_filters(struct sed_params *spectra);
 
 
 struct dust_params {

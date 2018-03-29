@@ -702,104 +702,6 @@ cdef dust_params *init_dust_parameters(dust):
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
-# Functions to process filters                                                  #
-#                                                                               #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-from filters import filterDict
-
-def HST_filters(filterNames):
-    """
-    Quick access HST filters.
-
-    Parameters
-    ----------
-    filterNames: list
-        Available filters: B435, V606, i775, I814, z850, Y098, Y105, 
-        J125, H160, 3.6.
-
-    Returns
-    -------
-    obsBands: list
-        For each row, the first element is the filter name, and the 
-        second element is the transmission curve. The output can be 
-        passed to ``composite_spectra``.
-    """
-    obsBands = []
-    for name in filterNames:
-        obsBands.append([name, np.load(filterDict[name])])
-    return obsBands
-
-
-def read_filters(waves, restBands, obsBands, z):
-    #=====================================================================
-    # This function is to generate transmission curves that has the 
-    # same wavelengths with SED templates. It is called by 
-    # galaxy_mags(...). The input format refer to galaxy_mags(...). 
-    #
-    # Before integration over the filters, the fluxes must be a function 
-    # of wavelength.
-    # After integration over the filters, the fluxex becomes a function 
-    # of frequency.
-    #=====================================================================
-    nRest = len(restBands)
-    nObs = len(obsBands)
-    filters = np.zeros([nRest + nObs, len(waves)])
-    obsWaves = (1 + z)*waves
-    for i in xrange(nRest):
-        centre, bandWidth = restBands[i]
-        lower = centre - bandWidth/2.
-        upper = centre + bandWidth/2.
-        filters[i] = np.interp(waves, [lower, upper], [1., 1.], left = 0., right = 0.)
-        filters[i] /= np.trapz(filters[i]/waves, waves)
-        filters[i] *= 3.34e4*waves
-    for i in xrange(nObs):
-        fWaves, trans = obsBands[i][1]
-        filters[nRest + i] = np.interp(obsWaves, fWaves, trans, left = 0., right = 0.)
-        filters[nRest + i] /= np.trapz(filters[nRest + i]/waves, waves)
-        filters[nRest + i] *= 3.34e4*obsWaves
-    return filters.flatten()
-
-
-def beta_filters(waves):
-    #=====================================================================
-    # return the filters defined by Calzetti et al. 1994, which is used to 
-    # calculate the UV continuum slope
-    #=====================================================================
-    windows = np.array([[1268., 1284.],
-                        [1309., 1316.],
-                        [1342., 1371.],
-                        [1407., 1515.],
-                        [1562., 1583.],
-                        [1677., 1740.],
-                        [1760., 1833.],
-                        [1866., 1890.],
-                        [1930., 1950.],
-                        [2400., 2580.]])
-    minWaves = windows[0, 0]
-    maxWaves = windows[-1, -1]
-    minWIdx = max(0, np.where(waves >= minWaves)[0][0] - 1)
-    maxWIdx = np.where(waves <= maxWaves)[0][-1] + 1
-    waves = waves[minWIdx:maxWIdx + 1]
-    nFilter = len(windows)
-    filters = np.zeros([nFilter + 1, len(waves)])
-    for iF in xrange(nFilter):
-        filters[iF] = np.interp(waves, windows[iF], [1., 1.], left = 0., right = 0.)
-        filters[iF] /= np.trapz(filters[iF], waves)
-    filters[-1] = read_filters(waves, [[1600., 100.]], [], 0.)
-    centreWaves = np.append(windows.mean(axis = 1), 1600.)
-    return centreWaves, filters.flatten(), minWIdx, maxWIdx
-
-
-cdef extern from "mag_calc_cext.h":
-    void init_filters(sed_params *spectra, double *filters, int nFlux, int nObs,
-                      double *logWaves, double *LyAbsorption)
-
-
-    void free_filters(sed_params *spectra)
-
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-#                                                                               #
 # Functions to read SED templates                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -818,8 +720,11 @@ cdef extern from "mag_calc_cext.h":
         # Filters
         int nFlux
         int nObs
+        int *nFilterWaves
+        double *filterWaves
         double *filters
         double *logWaves
+        # IGM absorption
         double *LyAbsorption
         # Working templates
         int nAgeStep
@@ -891,6 +796,125 @@ cdef void free_raw_spectra(sed_params *spectra):
     free(spectra.age)
     free(spectra.waves)
     free(spectra.raw)
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Functions to process filters                                                  #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+from filters import filterDict
+
+def HST_filters(filterNames):
+    """
+    Quick access HST filters.
+
+    Parameters
+    ----------
+    filterNames: list
+        Available filters: B435, V606, i775, I814, z850, Y098, Y105, 
+        J125, H160, 3.6.
+
+    Returns
+    -------
+    obsBands: list
+        For each row, the first element is the filter name, and the 
+        second element is the transmission curve. The output can be 
+        passed to ``composite_spectra``.
+    """
+    obsBands = []
+    for name in filterNames:
+        obsBands.append([name, np.load(filterDict[name])])
+    return obsBands
+
+
+cdef void init_filters(sed_params *spectra, waves, restBands, obsBands, z):
+    #=====================================================================
+    # This function is to generate transmission curves that has the 
+    # same wavelengths with SED templates. It is called by 
+    # galaxy_mags(...). The input format refer to galaxy_mags(...). 
+    #
+    # Before integration over the filters, the fluxes must be a function 
+    # of wavelength.
+    # After integration over the filters, the fluxex becomes a function 
+    # of frequency.
+    #=====================================================================
+    cdef:
+        int iF, iW
+        int nWaves = len(waves)
+        int nRest = len(restBands)
+        int nObs = len(obsBands)
+        int nFlux = nObs + nRest
+    nFilterWaves = np.zeros(nFlux, dtype = 'i4')
+    filterWaves = np.empty(nFlux, dtype = object)
+    filters = np.empty(nFlux, dtype = object)
+    for iF in xrange(nRest):
+        centre, bandWidth = restBands[iF]
+        lower = centre - bandWidth/2.
+        upper = centre + bandWidth/2.
+        if lower < min(waves) or upper > max(waves):
+            raise ValueError("Filter wavelength ranges are beyond SED templates")
+        newWaves = np.array([lower])
+        for w in waves:
+            if w > lower and w < upper:
+                newWaves = np.append(newWaves, w)
+        newWaves = np.append(newWaves, upper)
+        newFilters = np.full(len(newWaves), 1./np.log(upper/lower))
+        newFilters *= 3.34e4*newWaves
+        nFilterWaves[iF] = len(newWaves)
+        filterWaves[iF] = newWaves
+        filters[iF] = newFilters
+    for iF in xrange(nRest, nFlux):
+        newWaves, newFilters = deepcopy(obsBands[iF - nRest][1])
+        if min(newWaves) < min(waves)*(1. + z) or max(newWaves) > max(waves)*(1. + z):
+            raise ValueError("Filter wavelength ranges are beyond SED templates")
+        newFilters /= np.trapz(newFilters/newWaves, newWaves)
+        newFilters *= 3.34e4*newWaves
+        #newWaves /= (1. + z)
+        nFilterWaves[iF] = len(newWaves)
+        filterWaves[iF] = newWaves
+        filters[iF] = newFilters
+    spectra.nFlux = nFlux
+    spectra.nObs = nObs
+    spectra.nFilterWaves = init_1d_int(nFilterWaves)
+    spectra.filterWaves = init_1d_double(np.concatenate(filterWaves).astype('f8'))
+    spectra.filters = init_1d_double(np.concatenate(filters).astype('f8'))
+
+
+cdef void free_filters(sed_params *spectra):
+    free(spectra.nFilterWaves)
+    free(spectra.filterWaves)
+    free(spectra.filters)
+
+
+#def beta_filters(waves):
+#    #=====================================================================
+#    # return the filters defined by Calzetti et al. 1994, which is used to 
+#    # calculate the UV continuum slope
+#    #=====================================================================
+#    windows = np.array([[1268., 1284.],
+#                        [1309., 1316.],
+#                        [1342., 1371.],
+#                        [1407., 1515.],
+#                        [1562., 1583.],
+#                        [1677., 1740.],
+#                        [1760., 1833.],
+#                        [1866., 1890.],
+#                        [1930., 1950.],
+#                        [2400., 2580.]])
+#    minWaves = windows[0, 0]
+#    maxWaves = windows[-1, -1]
+#    minWIdx = max(0, np.where(waves >= minWaves)[0][0] - 1)
+#    maxWIdx = np.where(waves <= maxWaves)[0][-1] + 1
+#    waves = waves[minWIdx:maxWIdx + 1]
+#    nFilter = len(windows)
+#    filters = np.zeros([nFilter + 1, len(waves)])
+#    for iF in xrange(nFilter):
+#        filters[iF] = np.interp(waves, windows[iF], [1., 1.], left = 0., right = 0.)
+#        filters[iF] /= np.trapz(filters[iF], waves)
+#    filters[-1] = read_filters(waves, [[1600., 100.]], [], 0.)
+#    centreWaves = np.append(windows.mean(axis = 1), 1600.)
+#    return centreWaves, filters.flatten(), minWIdx, maxWIdx
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -1035,7 +1059,6 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         int nObs = 0
         int nFlux = 0
         double *logWaves= NULL
-        double *filters = NULL
         int cOutType = 0
 
         int nR = 3
@@ -1057,31 +1080,39 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             dustParams = init_dust_parameters(dust[iS])
         # Compute the transmission of the IGM
         if IGM == 'I2014':
-            absorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
+            spectra.LyAbsorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
+        else:
+            spectra.LyAbsorption = NULL
         # Generate Filters
         minWIdx = None
         maxWIdx = None
         if outType == 'ph':
-            filters = init_1d_double(read_filters(waves, restBands, obsBands, z))
             nRest = len(restBands)
             nObs = len(obsBands)
             nFlux = nRest + nObs
-            init_filters(&spectra, filters, nFlux, nObs, NULL, absorption)
+            init_filters(&spectra, waves, restBands, obsBands, z)
             cOutType = 0
         elif outType == 'sp':
             nFlux = nWaves
+            spectra.nFlux = nWaves
             if obsFrame:
                 nObs = nWaves
-            init_filters(&spectra, NULL, nFlux, nObs, NULL, absorption)
+                spectra.nObs = nWaves
+            else:
+                spectra.nObs = 0
+            spectra.nFilterWaves = NULL
+            spectra.filterWaves = NULL
+            spectra.filters = NULL
+            spectra.logWaves = NULL
             cOutType = 1
-        elif outType == 'UV slope':
-            centreWaves, betaFilters, minWIdx, maxWIdx = beta_filters(waves)
-            logWaves = init_1d_double(np.log(centreWaves))
-            filters = init_1d_double(betaFilters)
-            nRest = len(centreWaves)
-            nFlux = nRest
-            init_filters(&spectra, filters, nFlux, nObs, logWaves, absorption)
-            cOutType = 2
+        #elif outType == 'UV slope':
+        #    centreWaves, betaFilters, minWIdx, maxWIdx = beta_filters(waves)
+        #    logWaves = init_1d_double(np.log(centreWaves))
+        #    filters = init_1d_double(betaFilters)
+        #    nRest = len(centreWaves)
+        #    nFlux = nRest
+        #    init_filters(&spectra, filters, nFlux, nObs, logWaves, absorption)
+        #    cOutType = 2
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
@@ -1116,9 +1147,9 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
                 columns.append(obsBands[iF][0])
         elif outType == 'sp':
             columns = (1. + z)*waves if obsFrame else waves
-        elif outType == 'UV slope':
-            columns = np.append(["beta", "norm", "R"], centreWaves)
-            columns[-1] = "M1600-100"           
+        #elif outType == 'UV slope':
+        #    columns = np.append(["beta", "norm", "R"], centreWaves)
+        #    columns[-1] = "M1600-100"           
         # Save the output to the disk
         if type(gals[0]) is str:
             mvIndices = <int[:nGal]>galParams.indices
@@ -1133,8 +1164,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
         free_gal_params(galParams)
         free(dustParams)
-        free(absorption)
-        free(filters)
+        free(spectra.LyAbsorption)
+        free_filters(&spectra)
         free(cOutput)
         free(logWaves)
 
