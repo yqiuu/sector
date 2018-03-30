@@ -8,6 +8,84 @@
 //#define JANSKY(x) (3.34e4*(x)*(x))
 #define M_AB(x) (-2.5*log10(x) + 8.9) // Convert Jansky to AB magnitude
 #define TOL 1e-30 // Minimum Flux
+short g_nThread = 1;
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *                                                                             *
+ * Profiling functions                                                         *
+ *                                                                             *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+#ifdef TIMING
+    #define MAX_BLOCK 100
+    #define INTEGRATION 0
+    #define DUST 1
+    #define WORKING1 2
+    #define WORKING2 3
+
+    static double timer[MAX_BLOCK];
+    static double counter[MAX_BLOCK];
+    static char blockNames[MAX_BLOCK][128];
+    static struct timespec g_sTime;
+    static struct timespec g_eTime;
+    static struct timespec g_sTime2;
+    static struct timespec g_eTime2;
+
+
+    void timing_start(char* text) {
+        clock_gettime(CLOCK_REALTIME, &g_sTime);
+        printf("#***********************************************************\n");
+        printf("# %s\n", text);
+    }
+
+
+    void timing_end(void) {
+        clock_gettime(CLOCK_REALTIME, &g_eTime);
+        double elapsedTime = g_eTime.tv_sec - g_sTime.tv_sec \
+                             + (g_eTime.tv_nsec - g_sTime.tv_nsec)/1e9;
+        int minute = (int)elapsedTime/60;
+        printf("# 100.0%% complete!\n");
+        printf("# Done!\n");
+        printf("# Elapsed time: %d min %.6f sec\n", minute, elapsedTime - minute*60);
+        printf("#***********************************************************\n\n");
+    }
+
+
+    void profiler_start(char* name, int blockIdx) {
+        clock_gettime(CLOCK_REALTIME, &g_sTime2);
+        strcpy(blockNames[blockIdx], name);
+    }
+
+
+    void profiler_end(int blockIdx) {
+        clock_gettime(CLOCK_REALTIME, &g_eTime2);
+        timer[blockIdx] += g_eTime2.tv_sec - g_sTime2.tv_sec \
+                           + (g_eTime2.tv_nsec - g_sTime2.tv_nsec)/1e9;
+        counter[blockIdx] += 1;
+    }
+
+
+    void profiler_summary(void) {
+        int iB, ncall;
+        printf("#***********************************************************\n");
+        for(iB = 0; iB < MAX_BLOCK; ++iB) {
+            ncall = counter[iB];
+            if (ncall == 0)
+                continue;
+            printf("# %s\n", blockNames[iB]);
+            printf("#\tncall: %d\taverage time: %.6f ms\n", ncall, timer[iB]/ncall*1e3);
+        }
+        printf("#***********************************************************\n\n");
+    }
+
+
+    inline void report(int i, int tot) {
+        int n = tot > 10 ? tot/10 : 1;
+        if (i%n == 0) {
+            printf("# %5.1f%% complete!\r", 100.*(i + 1)/tot);      
+            fflush(stdout);
+        }
+    }
+#endif
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -15,13 +93,6 @@
  * Basic functions                                                             *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-short g_nThread = 1;
-struct timespec g_sTime;
-struct timespec g_sTime2;
-struct timespec g_eTime;
-struct timespec g_eTime2;
-
-
 FILE *open_file(char *fName, char *mode) {
 /* Open the file with specific mode */
     FILE *fp;
@@ -31,18 +102,6 @@ FILE *open_file(char *fName, char *mode) {
     }
     printf("# File opened: \"%s\"!\n", fName);
     return fp;
-}
-
-
-inline void report(int i, int tot) {
-    #ifdef TIMING
-        int n = tot > 10 ? tot/10 : 1;
-        if (i%n == 0) {
-            printf("# %5.1f%% complete!\r", 100.*(i + 1)/tot);      
-            fflush(stdout);
-        }
-    #endif
-    ;
 }
 
 
@@ -71,38 +130,6 @@ void free_2d_double(double **p, int nRow) {
     free(p);
 }
 
-
-void timing_start(char* text) {
-    clock_gettime(CLOCK_REALTIME, &g_sTime);
-    printf("#***********************************************************\n");
-    printf("# ");
-    printf(text);
-}
-
-void timing_end(void) {
-    clock_gettime(CLOCK_REALTIME, &g_eTime);
-    double elapsedTime = g_eTime.tv_sec - g_sTime.tv_sec \
-                         + (g_eTime.tv_nsec - g_sTime.tv_nsec)/1e9;
-    int minute = (int)elapsedTime/60;
-    printf("# 100.0%% complete!\n");
-    printf("# Done!\n");
-    printf("# Elapsed time: %d min %.6f sec\n", minute, elapsedTime - minute*60);
-    printf("#***********************************************************\n\n");
-}
-
-void timing_start_sub(void) {
-    clock_gettime(CLOCK_REALTIME, &g_sTime2);
-}
-
-void timing_end_sub(char* text) {
-     clock_gettime(CLOCK_REALTIME, &g_eTime2);
-    double elapsedTime = g_eTime2.tv_sec - g_sTime2.tv_sec \
-                         + (g_eTime2.tv_nsec - g_sTime2.tv_nsec)/1e9;
-    printf("#     ");
-    printf(text);
-    printf("#     Elapsed time: %.6f ms\n", elapsedTime*1e3);
-    clock_gettime(CLOCK_REALTIME, &g_sTime2);
-}
 
 inline int bisection_search(double a, double *x, double nX) {
     /* return idx such x[idx] <= a < x[idx + 1] 
@@ -353,6 +380,9 @@ void free_templates_working(struct sed_params *spectra) {
 
 
 void integrate_templates_raw(struct sed_params *spectra) {
+    #ifdef TIMING
+        profiler_start("Integration over time", INTEGRATION);
+    #endif
     int iA, iW, iZ;
     double *pData;
 
@@ -367,10 +397,7 @@ void integrate_templates_raw(struct sed_params *spectra) {
     // The first dimension refers to metallicites and ages
     // The last dimension refers to wavelengths
     double *intData;
-    
-    #ifdef TIMING
-        timing_start("Integrate SED templates over time\n");
-    #endif
+
     nAge = spectra->nAge;
     age = spectra->age;
     nWaves = spectra->nWaves; 
@@ -394,7 +421,7 @@ void integrate_templates_raw(struct sed_params *spectra) {
         }
     memcpy(spectra->ready, spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));
     #ifdef TIMING
-        timing_end();
+        profiler_end(INTEGRATION);
     #endif
 }
  
@@ -417,7 +444,9 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
      * 
      * Reference: da Cunha et al. 2008
      */
-    
+    #ifdef TIMING
+        profiler_start("Dust absorption", DUST);
+    #endif
     int nAge = spectra->nAge;
     double *age = spectra->age;
     double *rawData = spectra->raw;
@@ -513,7 +542,9 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
 
     free(transISM);
     free(transBC);
-    
+    #ifdef TIMING
+        profiler_end(DUST);
+    #endif   
     return data;
 }
 
@@ -557,7 +588,7 @@ inline void templates_working(struct sed_params *spectra, double z) {
                  minZ, maxZ, Z) \
     num_threads(g_nThread) 
     {
-        int iA, iW, iZ, iAZ, iF, iFW, nAF, i, n;
+        int iA, iW, iZ, iAZ, iF, iFW, i, n;
         int nRest = nFlux - nObs;
         double *pData;
         double *pReadyData;
@@ -613,6 +644,10 @@ inline void templates_working(struct sed_params *spectra, double z) {
         }
         else {
             // Intgrate SED templates over filters
+            #ifdef TIMING
+                #pragma omp single
+                profiler_start("Filter fluxes", WORKING1);
+            #endif
             pData = refSpectra;
             for(iF = 0; iF < nRest; ++iF) {
                 nFW = nFilterWaves[iF];
@@ -658,9 +693,17 @@ inline void templates_working(struct sed_params *spectra, double z) {
                 pFilterWaves += nFW;
                 pFilters += nFW;
             }
+            #ifdef TIMING
+                #pragma omp single
+                profiler_end(WORKING1);
+            #endif
         }
 
         // Interploate SED templates along metallicities
+        #ifdef TIMING
+            #pragma omp single
+            profiler_start("Interploation over metallicites", WORKING2);
+        #endif
         n = (maxZ - minZ + 1)*nAge;
         #pragma omp for schedule(static,1)
         for(i = 0; i < n; ++i) {
@@ -669,6 +712,10 @@ inline void templates_working(struct sed_params *spectra, double z) {
             for(iF = 0; iF < nFlux; ++iF) 
                 pData[iF] = interp(interpZ, Z, refSpectra + (iF*nAge+ i%nAge)*nZ, nZ);
         }
+        #ifdef TIMING
+            #pragma omp single
+            profiler_end(WORKING2);
+        #endif
     }
     
     if (nObs > 0) {
@@ -688,6 +735,9 @@ inline void templates_working(struct sed_params *spectra, double z) {
 double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams, struct dust_params *dustParams,
                                short outType, short nThread) {
+    #ifdef TIMING
+        timing_start("Compute magnitudes");
+    #endif
     g_nThread = nThread;
 
     int iF, iG, iP, iFG;
@@ -720,28 +770,13 @@ double *composite_spectra_cext(struct sed_params *spectra,
     int minZ = spectra->minZ;
     int maxZ = spectra->maxZ;
 
-    #ifdef TIMING
-        timing_start("Compute magnitudes\n");
-    #endif
     if (dustParams == NULL)
         templates_working(spectra, z);
-    for(iG = 0; iG < nGal; report(iG++, nGal)) {
+    for(iG = 0; iG < nGal; ++iG) {
         // Add dust absorption to SED templates
-        #ifdef TIMING
-            if (iG < 10)
-                timing_start_sub();
-        #endif
         if (dustParams != NULL) {
             dust_absorption(spectra, dustParams + iG);
-            #ifdef TIMING
-                if (iG < 10)
-                    timing_end_sub("Add dust absorption to SED templates\n");
-            #endif
             templates_working(spectra, z);
-            #ifdef TIMING 
-                if (iG < 10)
-                    timing_end_sub("Process working templates\n");
-            #endif
         }
         // Sum contributions from all progenitors
         nProg = pHistories->nBurst;
@@ -759,11 +794,9 @@ double *composite_spectra_cext(struct sed_params *spectra,
         }
         ++pHistories;
         pOutput += nFlux;
+
         #ifdef TIMING
-            if (iG < 10) {
-                timing_end_sub("Sum contributions from all progenitors\n");
-                printf("# \n");
-            }
+            report(iG, nGal);
         #endif
     }
     free_templates_working(spectra);
@@ -776,12 +809,14 @@ double *composite_spectra_cext(struct sed_params *spectra,
         }
         #ifdef TIMING
             timing_end();
+            profiler_summary();
         #endif
         return output;
     }
     else if (outType == 1) {
         #ifdef TIMING
             timing_end();
+            profiler_summary();
         #endif
         return output;
     }
@@ -797,14 +832,10 @@ double *composite_spectra_cext(struct sed_params *spectra,
     int nFit = nFlux - 1;
     double *logf = malloc(nFit*sizeof(double));
 
-    #ifdef TIMING
-        timing_start_sub();
-    #endif
     for(iG = 0; iG < nGal; ++iG) {
         for(iF = 0; iF < nFit; ++iF) 
             logf[iF] = log(pFit[iF]);
         pFit += nFlux;
-
         //printf("waves = %.1f, logf = %.1f\n", logWaves[1], logf[1]);
         result = linregress(logWaves, logf, nFit);
         pOutput[0] = (double)result.slope;
@@ -813,9 +844,6 @@ double *composite_spectra_cext(struct sed_params *spectra,
         pOutput += nR;
         //printf("Slope = %.1f\n", result.slope);
     }
-    #ifdef TIMING
-        timing_end_sub("Fit UV slopes\n");
-    #endif       
     // Convert to AB magnitude
     pOutput = output + nFit;
     for(iG = 0; iG < nGal; ++iG) {
@@ -825,6 +853,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
 
     #ifdef TIMING
         timing_end();
+        profiler_summary();
     #endif
     return output;
 }
