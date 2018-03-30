@@ -588,8 +588,6 @@ inline void templates_working(struct sed_params *spectra, double z) {
                         pObsData[iW] *= LyAbsorption[iW];
                     }       
         }
-
-
         if (filters == NULL) {
             // Tranpose the templates such that the last dimension is the metallicity
             #pragma omp single
@@ -656,26 +654,6 @@ inline void templates_working(struct sed_params *spectra, double z) {
                 pFilterWaves += nFW;
                 pFilters += nFW;
             }
-            // Compute fluxes in rest frame filters
-            //n = nRest*nAge;
-            //#pragma omp for schedule(static,1)
-            //for(i = 0; i < n; ++i) {
-            //    pFilters = filters + i/nAge*nWaves;
-            //    pData = refSpectra + i*nZ;
-            //    for(iZ = 0; iZ < nZ; ++iZ)
-            //        pData[iZ] = trapz_filter(pFilters, readyData + (iZ*nAge + i%nAge)*nWaves, 
-            //                                 waves, nWaves);
-            //    }
-            //// Compute fluxes in observer frame filters
-            //n = nFlux*nAge;
-            //#pragma omp for schedule(static,1)
-            //for(i = nRest*nAge; i < n; ++i) {
-            //    pFilters = filters + i/nAge*nWaves;
-            //    pData = refSpectra + i*nZ;
-            //    for(iZ = 0; iZ < nZ; ++iZ)
-            //        pData[iZ] = trapz_filter(pFilters, obsData + (iZ*nAge+ i%nAge)*nWaves, 
-            //                                 obsWaves, nWaves);
-            //    }
         }
 
         // Interploate SED templates along metallicities
