@@ -133,6 +133,8 @@ inline double interp(double xp, double *x, double *y, int nPts) {
         return y[nPts - 1];
     else {
         idx0 = bisection_search(xp, x, nPts);
+        if (x[idx0] == xp)
+            return y[idx0];
         idx1 = idx0 + 1;
         return y[idx0] + (y[idx1] - y[idx0])*(xp - x[idx0])/(x[idx1] - x[idx0]);
     }
@@ -555,10 +557,10 @@ inline void templates_working(struct sed_params *spectra, double z) {
                  minZ, maxZ, Z) \
     num_threads(g_nThread) 
     {
-        int iA, iW, iZ, iAZ, iF, iFW, i, n;
+        int iA, iW, iZ, iAZ, iF, iFW, nAF, i, n;
         int nRest = nFlux - nObs;
         double *pData;
-        double *pWorkingData;
+        double *pReadyData;
         double *pObsData;
         int nFW;
         double *pFilterWaves = filterWaves;
@@ -612,43 +614,45 @@ inline void templates_working(struct sed_params *spectra, double z) {
         else {
             // Intgrate SED templates over filters
             pData = refSpectra;
-            #pragma omp single
             for(iF = 0; iF < nRest; ++iF) {
                 nFW = nFilterWaves[iF];
                 filterData = (double*)malloc(nFW*sizeof(double));
-                for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
-                    pWorkingData = readyData + (iAZ%nZ*nAge + iAZ/nZ)*nWaves;
+                n = nAge*nZ;
+                #pragma omp for schedule(static,1) 
+                for(i = 0; i < n; ++i) {
+                    pReadyData = readyData + (i%nZ*nAge + i/nZ)*nWaves;
                     for(iFW= 0; iFW < nFW; ++iFW)
                         filterData[iFW] = interp(pFilterWaves[iFW], 
-                                                 waves, pWorkingData, nWaves);
+                                                 waves, pReadyData, nWaves);
                     for(iFW = 0; iFW < nFW; ++iFW)
                         filterData[iFW] *= pFilters[iFW];
                     I = 0.;
                     for(iFW = 1; iFW < nFW; ++iFW)
                         I += (pFilterWaves[iFW] - pFilterWaves[iFW - 1]) \
                              *(filterData[iFW] + filterData[iFW - 1]);
-                    *pData++ = I/2.;
+                    pData[iF*n + i] = I/2.;
                 }
                 free(filterData);
                 pFilterWaves += nFW;
                 pFilters += nFW;
             }
-            #pragma omp single
             for(iF = nRest; iF < nFlux; ++iF) {
                 nFW = nFilterWaves[iF];
                 filterData = (double*)malloc(nFW*sizeof(double));
-                for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
-                    pWorkingData = obsData + (iAZ%nZ*nAge + iAZ/nZ)*nWaves;
+                n = nAge*nZ;
+                #pragma omp for schedule(static,1) 
+                for(i= 0; i< nAge*nZ; ++i) {
+                    pReadyData = obsData + (i%nZ*nAge + i/nZ)*nWaves;
                     for(iFW = 0; iFW < nFW; ++iFW)
                         filterData[iFW] = interp(pFilterWaves[iFW], 
-                                                 obsWaves, pWorkingData, nWaves);
+                                                 obsWaves, pReadyData, nWaves);
                     for(iFW = 0; iFW < nFW; ++iFW)
                         filterData[iFW] *= pFilters[iFW];
                     I = 0.;
                     for(iFW = 1; iFW < nFW; ++iFW)
                         I += (pFilterWaves[iFW] - pFilterWaves[iFW - 1]) \
                              *(filterData[iFW] + filterData[iFW - 1]);
-                    *pData++ = I/2.;
+                    pData[iF*n + i] = I/2.;
                 }
                 free(filterData);
                 pFilterWaves += nFW;
