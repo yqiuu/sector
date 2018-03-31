@@ -50,6 +50,15 @@ short g_nThread = 1;
     }
 
 
+    void init_profiler(void) {
+        int iB;
+        for(iB = 0; iB < MAX_BLOCK; ++iB) {
+            timer[iB] = 0.;
+            counter[iB] = 0;
+        }
+    }
+
+
     void profiler_start(char* name, int blockIdx) {
         clock_gettime(CLOCK_REALTIME, &g_sTime2);
         strcpy(blockNames[blockIdx], name);
@@ -821,6 +830,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams, struct dust_params *dustParams,
                                short outType, short nThread) {
     #ifdef TIMING
+        init_profiler();
         timing_start("Compute magnitudes");
     #endif
     g_nThread = nThread;
@@ -842,8 +852,8 @@ double *composite_spectra_cext(struct sed_params *spectra,
     double *logWaves = spectra->logWaves;
     init_templates_working(spectra, ageStep, nAgeStep, nFlux);
     integrate_templates_raw(spectra);
-    double *workingTmp = spectra->working;
-    double *pWorkingTmp;
+    double *workingData = spectra->working;
+    double *pWorkingData;
 
     // Initialise outputs
     double *output = malloc(nGal*nFlux*sizeof(double));
@@ -873,9 +883,9 @@ double *composite_spectra_cext(struct sed_params *spectra,
                 metals = minZ;
             else if (metals > maxZ)
                 metals = maxZ;
-            pWorkingTmp = workingTmp + (metals*nAgeStep + pBursts->index)*nFlux;
+            pWorkingData = workingData + (metals*nAgeStep + pBursts->index)*nFlux;
             for(iF = 0 ; iF < nFlux; ++iF)
-                pOutput[iF] += sfr*pWorkingTmp[iF];
+                pOutput[iF] += sfr*pWorkingData[iF];
         }
         ++pHistories;
         pOutput += nFlux;
