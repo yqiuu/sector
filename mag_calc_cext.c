@@ -21,6 +21,8 @@ short g_nThread = 1;
     #define DUST 1
     #define WORKING1 2
     #define WORKING2 3
+    #define SUM 4
+    #define FIT 5
 
     static double timer[MAX_BLOCK];
     static double counter[MAX_BLOCK];
@@ -846,24 +848,21 @@ double *composite_spectra_cext(struct sed_params *spectra,
     int nProg;
     double sfr;
     int metals;
-
     // Generate templates
     int nFlux = spectra->nFlux;
     double *logWaves = spectra->logWaves;
     init_templates_working(spectra, ageStep, nAgeStep, nFlux);
     integrate_templates_raw(spectra);
+    int minZ = spectra->minZ;
+    int maxZ = spectra->maxZ;
     double *workingData = spectra->working;
     double *pWorkingData;
-
     // Initialise outputs
     double *output = malloc(nGal*nFlux*sizeof(double));
     double *pOutput = output;
     for(iFG = 0; iFG < nGal*nFlux; ++iFG)
         *pOutput++ = TOL;
     pOutput = output;
-
-    int minZ = spectra->minZ;
-    int maxZ = spectra->maxZ;
 
     if (dustParams == NULL)
         templates_working(spectra, z);
@@ -874,6 +873,9 @@ double *composite_spectra_cext(struct sed_params *spectra,
             templates_working(spectra, z);
         }
         // Sum contributions from all progenitors
+        #ifdef TIMING
+            profiler_start("Summation over progenitors", SUM);
+        #endif
         nProg = pHistories->nBurst;
         for(iP = 0; iP < nProg; ++iP) {
             pBursts = pHistories->bursts + iP;
@@ -889,8 +891,8 @@ double *composite_spectra_cext(struct sed_params *spectra,
         }
         ++pHistories;
         pOutput += nFlux;
-
         #ifdef TIMING
+            profiler_end(SUM);
             report(iG, nGal);
         #endif
     }
@@ -917,15 +919,17 @@ double *composite_spectra_cext(struct sed_params *spectra,
     }
     
     // Fit UV slopes
+    #ifdef TIMING
+        profiler_start("Slope fit", FIT);
+    #endif
     int nR = 3;
     struct linResult result;
+    int nFit = nFlux - 1;
+    double *logf = malloc(nFit*sizeof(double));
 
     output = (double*)realloc(output, (nFlux + nR)*nGal*sizeof(double));
     pOutput = output + nFlux*nGal;
     double *pFit = output;
-
-    int nFit = nFlux - 1;
-    double *logf = malloc(nFit*sizeof(double));
 
     for(iG = 0; iG < nGal; ++iG) {
         for(iF = 0; iF < nFit; ++iF) 
@@ -945,8 +949,8 @@ double *composite_spectra_cext(struct sed_params *spectra,
         *pOutput = M_AB(*pOutput);
         pOutput += nFlux;
     }
-
     #ifdef TIMING
+        profiler_end(FIT);
         timing_end();
         profiler_summary();
     #endif
