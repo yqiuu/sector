@@ -734,7 +734,7 @@ cdef extern from "mag_calc_cext.h":
         double *working
 
 
-cdef void init_raw_templates(sed_params *spectra, path, maxAge, minWIdx, maxWIdx):
+cdef void init_templates_raw(sed_params *spectra, path, maxAge, minWIdx, maxWIdx):
     #=====================================================================
     # The dictionary define by *path* should contain:                               
     #                                                                               
@@ -1138,7 +1138,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
-        init_raw_templates(&spectra, sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
+        init_templates_raw(&spectra, sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
                            minWIdx, maxWIdx)
         shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1], z)
         # Compute spectra
