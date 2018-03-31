@@ -362,21 +362,106 @@ void free_templates_working(struct sed_params *spectra) {
 }
 
 
-//void init_filters(struct sed_params *spectra, double *filters, int nFlux, int nObs,
-//                  double *logWaves, double *LyAbsorption) {
-//    spectra->nFlux = nFlux;
-//    spectra->nObs = nObs;
-//    spectra->filters = filters;
-//    spectra->logWaves = logWaves;
-//    spectra->LyAbsorption = LyAbsorption;
-//}
+void shrink_templates_raw(struct sed_params *spectra, double maxAge, double z) {
+    if (spectra->filters == NULL)
+        return;
 
+    int iA, iF, iW, iZ;
 
-//void free_filters(struct sed_params *spectra) {
-//    free(spectra->filters);
-//    free(spectra->logWaves);
-//    free(spectra->LyAbsorption);
-//}
+    int nZ = spectra->nZ;
+    int nWaves = spectra->nWaves;
+    double *waves = spectra->waves;
+    int nAge = spectra->nAge;
+    double *age = spectra->age;
+    double *raw = spectra->raw;
+    int nFlux = spectra->nFlux;
+    int nRest = nFlux - spectra->nObs;
+    int *nFilterWaves = spectra->nFilterWaves;
+    double *filterWaves = spectra->filterWaves;
+    double *LyAbsorption = spectra->LyAbsorption;
+    int nFW;
+    double *pFilterWaves;
+
+    int inFlag = 0;
+    int outFlag;
+    int nNewWaves = 0;
+    int *wavesIndices = malloc(nWaves*sizeof(int));
+    double w;
+    int nNewAge = 0;
+    double *newWaves;
+    double *newRaw;
+    double *pNewRaw;
+    double *newAbsorption;
+
+    // Find shrinked wavelength ranges
+    printf("#***********************************************************\n");
+    printf("# Shrinked wavelength ranges:\n");
+    for(iW = 1; iW < nWaves; ++iW) {
+        w = waves[iW];
+        pFilterWaves = filterWaves;
+        outFlag = 1;
+        for(iF = 0; iF < nFlux; ++iF) {
+            nFW = nFilterWaves[iF];
+            if (iF == nRest)
+                w *= 1. + z;
+            if (w > pFilterWaves[0] && w < pFilterWaves[nFW - 1]) {
+                outFlag = 0;
+                if (!inFlag) {
+                    printf("#\t%.1f AA to ", waves[iW - 1]);
+                    wavesIndices[nNewWaves++] = iW - 1;
+                    wavesIndices[nNewWaves++] = iW;
+                    inFlag = 1;
+                }
+                else {
+                    wavesIndices[nNewWaves++] = iW;
+                }
+                break;
+            }
+            pFilterWaves += nFW;
+        }
+        if (inFlag && outFlag) {
+            printf("%.1f AA\n", waves[iW]);
+            wavesIndices[nNewWaves++] = iW;
+            inFlag = 0;
+        }
+    }
+    printf("# Original nWaves: %d\n", nWaves);
+    printf("# Shrinked nWaves: %d\n", nNewWaves);
+    // Find nNewAge
+    printf("#\n# Shrinked age range:\n");
+    for(iA = 0; age[iA] < maxAge; ++iA);
+    nNewAge = iA + 1;
+    spectra->nAge = nNewAge;
+    printf("#\t%.2f Myr to %.2f Myr\n", age[0]*1e-6, age[iA]*1e-6);
+    printf("# Original nAge: %d\n", nAge);
+    printf("# Shrinked nAge: %d\n", nNewAge);
+    printf("#***********************************************************\n\n");
+    // Construct new wavelengths
+    newWaves = (double*)malloc(nNewWaves*sizeof(double));
+    for(iW = 0; iW < nNewWaves; ++iW) 
+        newWaves[iW] = waves[wavesIndices[iW]];
+    spectra->nWaves = nNewWaves;
+    spectra->waves = newWaves;
+    free(waves);
+    // Construct new raw templates
+    newRaw = (double*)malloc(nZ*nNewWaves*nNewAge*sizeof(double));
+    pNewRaw = newRaw;
+    for(iZ = 0; iZ < nZ; ++iZ)
+        for(iW = 0; iW < nNewWaves; ++iW)
+            for(iA = 0; iA < nNewAge; ++iA)
+                *pNewRaw++ = raw[(iZ*nWaves + wavesIndices[iW])*nAge + iA];
+    spectra->raw = newRaw;
+    free(raw);
+    // Construct new IGM absorption
+    if (LyAbsorption != NULL) {
+        newAbsorption = (double*)malloc(nNewWaves*sizeof(double));
+        for(iW = 0; iW < nNewWaves; ++iW)
+            newAbsorption[iW] = LyAbsorption[wavesIndices[iW]];
+        spectra->LyAbsorption = newAbsorption;
+        free(LyAbsorption);
+    }
+    free(wavesIndices);
+}
 
 
 void integrate_templates_raw(struct sed_params *spectra) {

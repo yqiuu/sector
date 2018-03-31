@@ -27,6 +27,9 @@ struct sed_params {
 };
 
 
+void shrink_templates_raw(struct sed_params *spectra, double maxAge, double z);
+
+
 //void init_filters(struct sed_params *spectra, double *filters, int nFlux, int nObs,
 //                  double *logWaves, double *LyAbsorption);
 

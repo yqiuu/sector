@@ -758,29 +758,19 @@ cdef void init_raw_templates(sed_params *spectra, path, maxAge, minWIdx, maxWIdx
     spectra.nZ = len(Z)
     spectra.minZ = <short>(Z.min()*1000 - 0.5)
     spectra.maxZ = <short>(Z.max()*1000 - 0.5)
-    print "# Metallicity range: %.3f to %.3f"%(Z[0], Z[-1])
+    print "# Metallicity range:\n#\t%.3f to %.3f"%(Z[0], Z[-1])
     # Read wavelength
     waves = np.load(os.path.join(path, "sed_waves.npy"))
-    print "# Wavelength range: %.1f angstrom to %.1f angstrom"%(waves[0], waves[-1])
-    if minWIdx is None:
-        minWIdx = 0
-    if maxWIdx is None:
-        maxWIdx = len(waves) - 1
-    waves = waves[minWIdx:maxWIdx + 1]
-    print "# Shrinked wavelength range: %.1f angstrom to %.1f angstrom"%(waves[0], waves[-1])
+    print "# Wavelength range:\n#\t%.1f AA to %.1f AA"%(waves[0], waves[-1])
     spectra.waves = init_1d_double(waves)
     spectra.nWaves = len(waves)
     # Read stellar age
     age = np.load(os.path.join(path, "sed_age.npy"))
-    print "# Stellar age range: %.2f Myr to %.2f Myr"%(age[0]*1e-6, age[-1]*1e-6)
-    maxAIdx = np.where(age <= maxAge)[0][-1] + 1
-    age = age[:maxAIdx + 1]
-    print "# Shrinked stellar age range: %.2f Myr to %.2f Myr"%(age[0]*1e-6, age[-1]*1e-6)
+    print "# Stellar age range:\n#\t%.2f Myr to %.2f Myr"%(age[0]*1e-6, age[-1]*1e-6)
     spectra.age = init_1d_double(age)
     spectra.nAge = len(age)
     # Read flux
-    flux = np.load(os.path.join(path, "sed_flux.npy"))[:, minWIdx:maxWIdx + 1, :maxAIdx + 1]
-    flux = flux.flatten()
+    flux = np.load(os.path.join(path, "sed_flux.npy")).flatten()
     spectra.raw = init_1d_double(flux)
     timing_end()
 
@@ -796,6 +786,10 @@ cdef void free_raw_spectra(sed_params *spectra):
     free(spectra.age)
     free(spectra.waves)
     free(spectra.raw)
+
+
+cdef extern from "mag_calc_cext.h":
+    void shrink_templates_raw(sed_params *spectra, double maxAge, double z)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -1114,6 +1108,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         minWIdx = None
         maxWIdx = None
         if outType == 'ph':
+            #minWIdx = 10
+            #maxWIdx = 500
             nRest = len(restBands)
             nObs = len(obsBands)
             nFlux = nRest + nObs
@@ -1144,6 +1140,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         # Read raw SED templates
         init_raw_templates(&spectra, sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
                            minWIdx, maxWIdx)
+        shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1], z)
         # Compute spectra
         cOutput = composite_spectra_cext(&spectra, galParams, dustParams,
                                          cOutType, nThread)
