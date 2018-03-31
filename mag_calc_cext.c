@@ -83,7 +83,8 @@ short g_nThread = 1;
             if (ncall == 0)
                 continue;
             printf("# %s\n", blockNames[iB]);
-            printf("#\tncall: %d\taverage time: %.6f ms\n", ncall, timer[iB]/ncall*1e3);
+            printf("#  call: %6d  total: %2.3f sec  mean: %2.3f ms\n", 
+                   ncall, timer[iB], timer[iB]/ncall*1e3);
         }
         printf("#***********************************************************\n\n");
     }
