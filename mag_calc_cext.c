@@ -685,8 +685,8 @@ inline void templates_working(struct sed_params *spectra, double z) {
         int iA, iW, iZ, iAZ, iF, iFW, i, n;
         int nRest = nFlux - nObs;
         double *pData;
-        double *pReadyData;
         double *pObsData;
+        double *pRefData;
         int nFW;
         double *pFilterWaves = filterWaves;
         double *pFilters = filters;
@@ -742,24 +742,24 @@ inline void templates_working(struct sed_params *spectra, double z) {
                 #pragma omp single
                 profiler_start("Filter fluxes", WORKING1);
             #endif
-            pData = refSpectra;
+            pRefData = refSpectra;
             for(iF = 0; iF < nRest; ++iF) {
                 nFW = nFilterWaves[iF];
                 filterData = (double*)malloc(nFW*sizeof(double));
                 n = nAge*nZ;
                 #pragma omp for schedule(static,1) 
                 for(i = 0; i < n; ++i) {
-                    pReadyData = readyData + (i%nZ*nAge + i/nZ)*nWaves;
+                    pData = readyData + (i%nZ*nAge + i/nZ)*nWaves;
                     for(iFW= 0; iFW < nFW; ++iFW)
                         filterData[iFW] = interp(pFilterWaves[iFW], 
-                                                 waves, pReadyData, nWaves);
+                                                 waves, pData, nWaves);
                     for(iFW = 0; iFW < nFW; ++iFW)
                         filterData[iFW] *= pFilters[iFW];
                     I = 0.;
                     for(iFW = 1; iFW < nFW; ++iFW)
                         I += (pFilterWaves[iFW] - pFilterWaves[iFW - 1]) \
                              *(filterData[iFW] + filterData[iFW - 1]);
-                    pData[iF*n + i] = I/2.;
+                    pRefData[iF*n + i] = I/2.;
                 }
                 free(filterData);
                 pFilterWaves += nFW;
@@ -771,17 +771,17 @@ inline void templates_working(struct sed_params *spectra, double z) {
                 n = nAge*nZ;
                 #pragma omp for schedule(static,1) 
                 for(i= 0; i< nAge*nZ; ++i) {
-                    pReadyData = obsData + (i%nZ*nAge + i/nZ)*nWaves;
+                    pObsData = obsData + (i%nZ*nAge + i/nZ)*nWaves;
                     for(iFW = 0; iFW < nFW; ++iFW)
                         filterData[iFW] = interp(pFilterWaves[iFW], 
-                                                 obsWaves, pReadyData, nWaves);
+                                                 obsWaves, pObsData, nWaves);
                     for(iFW = 0; iFW < nFW; ++iFW)
                         filterData[iFW] *= pFilters[iFW];
                     I = 0.;
                     for(iFW = 1; iFW < nFW; ++iFW)
                         I += (pFilterWaves[iFW] - pFilterWaves[iFW - 1]) \
                              *(filterData[iFW] + filterData[iFW - 1]);
-                    pData[iF*n + i] = I/2.;
+                    pRefData[iF*n + i] = I/2.;
                 }
                 free(filterData);
                 pFilterWaves += nFW;
