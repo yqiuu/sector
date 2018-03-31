@@ -647,9 +647,12 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
 
 
 inline void templates_working(struct sed_params *spectra, double z) {
+    int minZ = spectra->minZ;
+    int maxZ = spectra->maxZ;   
+    int nZ = spectra->nZ;
+    double *Z = spectra->Z;
     int nWaves = spectra->nWaves;
     double *waves = spectra->waves;
-    int nZ = spectra->nZ;
 
     int nFlux = spectra->nFlux;
     int nObs = spectra->nObs;
@@ -658,7 +661,7 @@ inline void templates_working(struct sed_params *spectra, double z) {
     double *filters = spectra->filters;
     double *LyAbsorption = spectra->LyAbsorption;
 
-    int nAge = spectra->nAgeStep;
+    int nAgeStep = spectra->nAgeStep;
     double *readyData = spectra->ready;
     double *workingData = spectra->working;
 
@@ -666,23 +669,18 @@ inline void templates_working(struct sed_params *spectra, double z) {
     double *obsData = NULL;
     if (nObs > 0) {
         obsWaves = (double*)malloc(nWaves*sizeof(double));
-        obsData = (double*)malloc(nZ*nAge*nWaves*sizeof(double));
+        obsData = (double*)malloc(nZ*nAgeStep*nWaves*sizeof(double));
     }
     // Spectra to be interploated along metallicities
     // The first dimension refers to filters/wavelengths and ages
     // Thw last dimension refers to metallicites
-    double *refSpectra = malloc(nFlux*nAge*nZ*sizeof(double));
+    double *refSpectra = malloc(nFlux*nAgeStep*nZ*sizeof(double));
     
-    int minZ = spectra->minZ;
-    int maxZ = spectra->maxZ;   
-    double *Z = spectra->Z;
-
     #pragma omp parallel \
     default(none)  \
-    firstprivate(z, nWaves, waves, nZ, \
+    firstprivate(z, minZ, maxZ, nZ, Z, nWaves, waves, \
                  nFlux, nObs, nFilterWaves, filterWaves, filters, LyAbsorption, \
-                 nAge, readyData, workingData, obsWaves, obsData, refSpectra, \
-                 minZ, maxZ, Z) \
+                 nAgeStep, readyData, workingData, obsWaves, obsData, refSpectra) \
     num_threads(g_nThread) 
     {
         int iA, iW, iZ, iAZ, iF, iFW, i, n;
@@ -690,11 +688,13 @@ inline void templates_working(struct sed_params *spectra, double z) {
         double *pData;
         double *pObsData;
         double *pRefData;
+
         int nFW;
         double *pFilterWaves = filterWaves;
         double *pFilters = filters;
         double *filterData;
         double I;
+
         double interpZ;
         
         #pragma omp single
@@ -704,7 +704,7 @@ inline void templates_working(struct sed_params *spectra, double z) {
             // Therefore the fluxes has a factor of 1/(1 + z)
             for(iW = 0; iW < nWaves; ++iW)
                 obsWaves[iW] = waves[iW]*(1. + z);
-            for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
+            for(iAZ = 0; iAZ < nAgeStep*nZ; ++iAZ) {
                 pData = readyData + iAZ*nWaves;
                 pObsData = obsData + iAZ*nWaves;
                 for(iW = 0; iW < nWaves; ++iW)
@@ -712,7 +712,7 @@ inline void templates_working(struct sed_params *spectra, double z) {
             }
             if (LyAbsorption != NULL)
                 // Add IGM absorption
-                 for(iAZ = 0; iAZ < nAge*nZ; ++iAZ) {
+                 for(iAZ = 0; iAZ < nAgeStep*nZ; ++iAZ) {
                     pObsData = obsData + iAZ*nWaves;
                     for(iW = 0; iW < nWaves; ++iW)
                         pObsData[iW] *= LyAbsorption[iW];
@@ -723,19 +723,19 @@ inline void templates_working(struct sed_params *spectra, double z) {
             #pragma omp single
             if (nObs > 0) {
                 for(iZ = 0; iZ < nZ; ++iZ) 
-                    for(iA = 0; iA < nAge; ++iA) {
+                    for(iA = 0; iA < nAgeStep; ++iA) {
                         // Use fluxes in the observer frame
-                        pObsData = obsData + (iZ*nAge + iA)*nWaves;
+                        pObsData = obsData + (iZ*nAgeStep + iA)*nWaves;
                         for(iW = 0; iW < nWaves; ++iW)
-                            refSpectra[(iW*nAge + iA)*nZ + iZ] = pObsData[iW];
+                            refSpectra[(iW*nAgeStep + iA)*nZ + iZ] = pObsData[iW];
                     }
             }
             else {
                 for(iZ = 0; iZ < nZ; ++iZ) 
-                    for(iA = 0; iA < nAge; ++iA) {
-                        pData = readyData + (iZ*nAge + iA)*nWaves;
+                    for(iA = 0; iA < nAgeStep; ++iA) {
+                        pData = readyData + (iZ*nAgeStep + iA)*nWaves;
                         for(iW = 0; iW < nWaves; ++iW)
-                            refSpectra[(iW*nAge + iA)*nZ + iZ] = pData[iW];
+                            refSpectra[(iW*nAgeStep + iA)*nZ + iZ] = pData[iW];
                     }
             }
         }
@@ -749,10 +749,10 @@ inline void templates_working(struct sed_params *spectra, double z) {
             for(iF = 0; iF < nRest; ++iF) {
                 nFW = nFilterWaves[iF];
                 filterData = (double*)malloc(nFW*sizeof(double));
-                n = nAge*nZ;
+                n = nAgeStep*nZ;
                 #pragma omp for schedule(static,1) 
                 for(i = 0; i < n; ++i) {
-                    pData = readyData + (i%nZ*nAge + i/nZ)*nWaves;
+                    pData = readyData + (i%nZ*nAgeStep + i/nZ)*nWaves;
                     for(iFW= 0; iFW < nFW; ++iFW)
                         filterData[iFW] = interp(pFilterWaves[iFW], 
                                                  waves, pData, nWaves);
@@ -771,10 +771,10 @@ inline void templates_working(struct sed_params *spectra, double z) {
             for(iF = nRest; iF < nFlux; ++iF) {
                 nFW = nFilterWaves[iF];
                 filterData = (double*)malloc(nFW*sizeof(double));
-                n = nAge*nZ;
+                n = nAgeStep*nZ;
                 #pragma omp for schedule(static,1) 
-                for(i= 0; i< nAge*nZ; ++i) {
-                    pObsData = obsData + (i%nZ*nAge + i/nZ)*nWaves;
+                for(i= 0; i< nAgeStep*nZ; ++i) {
+                    pObsData = obsData + (i%nZ*nAgeStep + i/nZ)*nWaves;
                     for(iFW = 0; iFW < nFW; ++iFW)
                         filterData[iFW] = interp(pFilterWaves[iFW], 
                                                  obsWaves, pObsData, nWaves);
@@ -801,13 +801,13 @@ inline void templates_working(struct sed_params *spectra, double z) {
             #pragma omp single
             profiler_start("Interploation over metallicites", WORKING2);
         #endif
-        n = (maxZ - minZ + 1)*nAge;
+        n = (maxZ - minZ + 1)*nAgeStep;
         #pragma omp for schedule(static,1)
         for(i = 0; i < n; ++i) {
-            interpZ = (minZ + i/nAge + 1.)/1000.;
+            interpZ = (minZ + i/nAgeStep + 1.)/1000.;
             pData = workingData + i*nFlux;
             for(iF = 0; iF < nFlux; ++iF) 
-                pData[iF] = interp(interpZ, Z, refSpectra + (iF*nAge+ i%nAge)*nZ, nZ);
+                pData[iF] = interp(interpZ, Z, refSpectra + (iF*nAgeStep+ i%nAgeStep)*nZ, nZ);
         }
         #ifdef TIMING
             #pragma omp single
@@ -815,10 +815,8 @@ inline void templates_working(struct sed_params *spectra, double z) {
         #endif
     }
     
-    if (nObs > 0) {
-        free(obsWaves);
-        free(obsData);
-    }
+    free(obsWaves);
+    free(obsData);
     free(refSpectra);
 
 }
