@@ -143,7 +143,7 @@ void free_2d_double(double **p, int nRow) {
 }
 
 
-inline unsigned int bisection_search(double a, double *x, int nX) {
+inline int bisection_search(double a, double *x, int nX) {
     /* return idx such x[idx] <= a < x[idx + 1] 
      * a must be x[0] <= a < x[nX - 1]
      */
@@ -163,7 +163,7 @@ inline unsigned int bisection_search(double a, double *x, int nX) {
 
 inline double interp(double xp, double *x, double *y, int nPts) {
     /* Interpolate a given points */
-    unsigned int idx0, idx1;
+    int idx0, idx1;
     if((xp < x[0]) || (xp > x[nPts - 1])) {
         printf("Error: Point %10.5e is beyond the interpolation region\n", xp);
         exit(0);
