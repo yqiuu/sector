@@ -355,40 +355,6 @@ struct sed_params {
 };
 
 
-void init_templates_working(struct sed_params *spectra, 
-                            double *ageStep, int nAgeStep, int nFlux) {
-    size_t intFluxSize = spectra->nZ*nAgeStep*spectra->nWaves*sizeof(double);
-    size_t workingSize = (spectra->maxZ + 1)*nAgeStep*nFlux*sizeof(double);
-    spectra->ageStep = ageStep;
-    spectra->nAgeStep = nAgeStep;
-    spectra->integrated = (double*)malloc(intFluxSize);
-    spectra->ready = (double*)malloc(intFluxSize);
-    spectra->working = (double*)malloc(workingSize);
-}
-
-
-/*
-void omp_init_templates_working(struct sed_params *newSpectra, struct sed_params *spectra) {
-    memcpy(newSpectra, spectra, sizeof(struct sed_params));
-    int maxZ = spectra->maxZ;
-    int nZ = spectra->nZ;
-    int nWaves = spectra->nWaves;
-    int nFlux = spectra->nFlux;
-    int nAgeStep = spectra->nAgeStep;
-    size_t integratedSize = ;
-    size_t workingSize = (maxZ + 1)*nAgeStep*nFlux*sizeof(double);
-    newSpectra->ready = (double*)malloc(nZ*nAgeStep*nWaves*sizeof(double));
-    newSpectra->working = (double*)malloc(workingSize);
-}
-*/
-
-void free_templates_working(struct sed_params *spectra) {
-    free(spectra->integrated);
-    free(spectra->ready);
-    free(spectra->working);
-}
-
-
 void shrink_templates_raw(struct sed_params *spectra, double maxAge, double z) {
     if (spectra->filters == NULL)
         return;
@@ -491,7 +457,7 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge, double z) {
 }
 
 
-void integrate_templates_raw(struct sed_params *spectra) {
+void init_templates_integrated(struct sed_params *spectra) {
     #ifdef TIMING
         profiler_start("Integration over time", INTEGRATION);
     #endif
@@ -632,7 +598,7 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
 }
 
 
-inline void templates_working(struct sed_params *spectra, double z) {
+inline void init_templates_working(struct sed_params *spectra, double z) {
     int iW, iF, iFW, i, n;
 
     int minZ = spectra->minZ;
@@ -785,7 +751,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     size_t workingSize = (maxZ + 1)*nAgeStep*nFlux*sizeof(double);
     spectra->nAgeStep = nAgeStep;
     spectra->ageStep = ageStep;
-    integrate_templates_raw(spectra);
+    init_templates_integrated(spectra);
     spectra->ready = NULL;
     spectra->working = NULL;
     // Initialise outputs
@@ -824,7 +790,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
         omp_spectra.working = workingData;
         if (dustParams == NULL) {
             memcpy(readyData, intData, readySize);
-            templates_working(&omp_spectra, z);
+            init_templates_working(&omp_spectra, z);
         }
         #pragma omp for schedule(static, 1)
         for(iG = 0; iG < nGal; ++iG) {
@@ -832,7 +798,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
             if (dustParams != NULL) {
                 memcpy(readyData, intData, readySize);
                 dust_absorption(&omp_spectra, dustParams + iG);
-                templates_working(&omp_spectra, z);
+                init_templates_working(&omp_spectra, z);
             }
             // Sum contributions from all progenitors
             pHistories = histories + iG;
