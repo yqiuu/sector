@@ -320,6 +320,21 @@ struct gal_params {
     struct csp *histories;
 };
 
+
+int *age_flag(struct csp *histories, int nAgeStep) {
+    int *ageFlag = malloc(nAgeStep*sizeof(int));
+    int nB = histories->nBurst;
+    struct ssp *bursts = histories->bursts;
+
+    for(int iA = 0; iA < nAgeStep; ++iA)
+        ageFlag[iA] = 1;
+    for(int iB = 0; iB < nB; ++iB)
+        ageFlag[bursts[iB].index] = 0;
+
+    return ageFlag;
+}
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *                                                                             *
  * Functions to process SEDs                                                   *
@@ -598,8 +613,8 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
 }
 
 
-inline void init_templates_working(struct sed_params *spectra, double z) {
-    int iA, iW, iF, iZ, iFW, i, n;
+inline void init_templates_working(struct sed_params *spectra, double z, int *ageFlag) {
+    int iA, iW, iF, iFW, i, n;
 
     int minZ = spectra->minZ;
     int maxZ = spectra->maxZ;   
@@ -689,7 +704,10 @@ inline void init_templates_working(struct sed_params *spectra, double z) {
             }
             n = nAgeStep*nZ;
             for(i = 0; i < n; ++i) {
-                pData = pReadyData + (i%nZ*nAgeStep + i/nZ)*nWaves;
+                iA = i/nZ;
+                if (ageFlag[iA])
+                    continue;
+                pData = pReadyData + (i%nZ*nAgeStep + iA)*nWaves;
                 for(iFW= 0; iFW < nFW; ++iFW)
                     filterData[iFW] = interp(pFilterWaves[iFW], 
                                              pWaves, pData, nWaves);
@@ -707,22 +725,16 @@ inline void init_templates_working(struct sed_params *spectra, double z) {
         }
     }
     // Interploate SED templates along metallicities
-    pData = workingData;
-    for(iZ = minZ; iZ < maxZ + 1; ++iZ) {
-        interpZ = (iZ + 1.)/1000.;
-        for(iA = 0; iA < nAgeStep; ++iA)
-            for(iF = 0; iF < nFlux; ++iF)
-                *pData++ = interp(interpZ, Z, refSpectra + (iF*nAgeStep + iA)*nZ, nZ);
-    }
-    /*
     n = (maxZ - minZ + 1)*nAgeStep;
     for(i = 0; i < n; ++i) {
+        iA = i%nAgeStep;
+        if (ageFlag[iA])
+            continue;
         interpZ = (minZ + i/nAgeStep + 1.)/1000.;
         pData = workingData + i*nFlux;
         for(iF = 0; iF < nFlux; ++iF) 
-            pData[iF] = interp(interpZ, Z, refSpectra + (iF*nAgeStep+ i%nAgeStep)*nZ, nZ);
+            pData[iF] = interp(interpZ, Z, refSpectra + (iF*nAgeStep+ iA)*nZ, nZ);
     }
-    */
     
     free(obsWaves);
     free(obsData);
@@ -797,20 +809,26 @@ double *composite_spectra_cext(struct sed_params *spectra,
         double *workingData = malloc(workingSize);
         omp_spectra.ready = readyData;
         omp_spectra.working = workingData;
+        int *ageFlag;
         if (dustParams == NULL) {
+            ageFlag = calloc(nAgeStep, sizeof(int));
             memcpy(readyData, intData, readySize);
-            init_templates_working(&omp_spectra, z);
+            init_templates_working(&omp_spectra, z, ageFlag);
+            free(ageFlag);
         }
+
         #pragma omp for schedule(static, 1)
         for(iG = 0; iG < nGal; ++iG) {
+            pHistories = histories + iG;
             // Add dust absorption to SED templates
             if (dustParams != NULL) {
+                ageFlag = age_flag(pHistories, nAgeStep);
                 memcpy(readyData, intData, readySize);
                 dust_absorption(&omp_spectra, dustParams + iG);
-                init_templates_working(&omp_spectra, z);
+                init_templates_working(&omp_spectra, z, ageFlag);
+                free(ageFlag);
             }
             // Sum contributions from all progenitors
-            pHistories = histories + iG;
             nProg = pHistories->nBurst;
             pOutput = output + iG*nFlux;
             for(iP = 0; iP < nProg; ++iP) {
