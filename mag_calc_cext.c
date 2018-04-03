@@ -321,6 +321,34 @@ struct gal_params {
 };
 
 
+void trim_gal_params(struct gal_params *galParams, int minZ, int maxZ) {
+    /* Set the metallicity of each SSP to the given range */
+    int iB, iG;
+
+    float f_minZ = (minZ + 1.)/1000.;
+    float f_maxZ = (maxZ + 1.)/1000.;
+    int metals;
+    int nGal = galParams->nGal;
+    struct csp *pHistories = galParams->histories;
+    int nBurst;
+    struct ssp *pBursts;
+
+    for(iG = 0; iG < nGal; ++iG) {
+        nBurst = pHistories->nBurst;
+        pBursts = pHistories->bursts;
+        for(iB = 0; iB < nBurst; ++iB) {
+            metals = (int)(pBursts->metals*1000 - .5);
+            if (metals < minZ)
+                pBursts->metals = f_minZ;
+            else if (metals > maxZ)
+                pBursts->metals = f_maxZ;
+            ++pBursts;
+        }
+        ++pHistories;
+    }
+}
+
+
 int *age_flag(struct csp *histories, int nAgeStep) {
     int *ageFlag = malloc(nAgeStep*sizeof(int));
     int nB = histories->nBurst;
@@ -333,6 +361,22 @@ int *age_flag(struct csp *histories, int nAgeStep) {
 
     return ageFlag;
 }
+
+
+/*
+int *Z_flag(struct csp *histories, int nAgeStep) {
+    int *ZFlag = malloc(nAgeStep*sizeof(int));
+    int nB = histories->nBurst;
+    struct ssp *bursts = histories->bursts;
+
+    for(int iZ = 0; iZ < nAgeStep; ++iZ)
+        ZFlag[iZ] = 1;
+    for(int iB = 0; iB < nB; ++iB)
+        ZFlag[(int)(1000*bursts[iB].metals - 0.5)] = 0;
+
+    return ZFlag;
+}
+*/
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -764,17 +808,16 @@ double *composite_spectra_cext(struct sed_params *spectra,
 
     int iF, iG, iFG;
     // Initialise galaxies parameters
+    trim_gal_params(galParams, spectra->minZ, spectra->maxZ);
     double z = galParams->z;
     int nAgeStep= galParams->nAgeStep;
     double *ageStep = galParams->ageStep;
     int nGal = galParams->nGal;
     struct csp *histories = galParams->histories;
     // Generate templates
-    int minZ = spectra->minZ;
-    int maxZ = spectra->maxZ;
     int nFlux = spectra->nFlux;
     size_t readySize = spectra->nZ*nAgeStep*spectra->nWaves*sizeof(double);
-    size_t workingSize = (maxZ + 1)*nAgeStep*nFlux*sizeof(double);
+    size_t workingSize = (spectra->maxZ + 1)*nAgeStep*nFlux*sizeof(double);
     spectra->nAgeStep = nAgeStep;
     spectra->ageStep = ageStep;
     init_templates_integrated(spectra);
@@ -793,7 +836,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     default(none) \
     firstprivate(spectra, dustParams, \
                  z, nAgeStep, ageStep, nGal, histories, \
-                 minZ, maxZ, nFlux, readySize, workingSize, \
+                 nFlux, readySize, workingSize, \
                  output) \
     num_threads(nThread)
     {
@@ -840,10 +883,6 @@ double *composite_spectra_cext(struct sed_params *spectra,
                 pBursts = pHistories->bursts + iP;
                 sfr = pBursts->sfr;
                 metals = (int)(pBursts->metals*1000 - .5);
-                if (metals < minZ)
-                    metals = minZ;
-                else if (metals > maxZ)
-                    metals = maxZ;
                 pData = workingData + (metals*nAgeStep + pBursts->index)*nFlux;
                 for(iF = 0 ; iF < nFlux; ++iF)
                     pOutput[iF] += sfr*pData[iF];
