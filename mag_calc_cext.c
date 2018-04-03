@@ -522,7 +522,8 @@ struct dust_params {
 };
 
 
-inline double *dust_absorption(struct sed_params *spectra, struct dust_params *dustParams) {
+inline void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams,
+                            int *ageFlag) {
     /* tBC: life time of the birth clound
      * nu: fraction of ISM dust absorption
      * tauUV: V-band absorption optical depth
@@ -531,7 +532,7 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
      * 
      * Reference: da Cunha et al. 2008
      */
-    int iW, i, n;
+    int iA, iW, i, n;
     double *pData; 
 
     int nAge = spectra->nAge;
@@ -581,7 +582,7 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
     }
     
     // t_s < tBC < t_s + dt
-    if (iAgeBC != nAgeStep) {
+    if (iAgeBC != nAgeStep && !ageFlag[iAgeBC]) {
         n = nZ*nWaves;
         for(i = 0; i < n; ++i) {
             iW = i%nWaves;
@@ -595,13 +596,18 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
     // tBC > t_s       
     n = iAgeBC*nZ;
     for(i = 0; i < n; ++i) {
-        pData = data + (i/iAgeBC*nAgeStep + i%iAgeBC)*nWaves;
+        iA = i%iAgeBC;
+        if (ageFlag[iA])
+            continue;
+        pData = data + (i/iAgeBC*nAgeStep + iA)*nWaves;
         for(iW = 0; iW < nWaves; ++iW) 
             pData[iW] *= transBC[iW];
     }
     
     n = nAgeStep*nZ;
     for(i = 0; i < n; ++i) {
+        if (ageFlag[i%nAgeStep])
+            continue;
         pData = data + i*nWaves;
         for(iW = 0; iW < nWaves; ++iW) 
             pData[iW] *= transISM[iW];
@@ -609,7 +615,6 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
 
     free(transISM);
     free(transBC);
-    return data;
 }
 
 
@@ -824,7 +829,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
             if (dustParams != NULL) {
                 ageFlag = age_flag(pHistories, nAgeStep);
                 memcpy(readyData, intData, readySize);
-                dust_absorption(&omp_spectra, dustParams + iG);
+                dust_absorption(&omp_spectra, dustParams + iG, ageFlag);
                 init_templates_working(&omp_spectra, z, ageFlag);
                 free(ageFlag);
             }
