@@ -599,7 +599,7 @@ inline double *dust_absorption(struct sed_params *spectra, struct dust_params *d
 
 
 inline void init_templates_working(struct sed_params *spectra, double z) {
-    int iW, iF, iFW, i, n;
+    int iA, iW, iF, iZ, iFW, i, n;
 
     int minZ = spectra->minZ;
     int maxZ = spectra->maxZ;   
@@ -707,6 +707,14 @@ inline void init_templates_working(struct sed_params *spectra, double z) {
         }
     }
     // Interploate SED templates along metallicities
+    pData = workingData;
+    for(iZ = minZ; iZ < maxZ + 1; ++iZ) {
+        interpZ = (iZ + 1.)/1000.;
+        for(iA = 0; iA < nAgeStep; ++iA)
+            for(iF = 0; iF < nFlux; ++iF)
+                *pData++ = interp(interpZ, Z, refSpectra + (iF*nAgeStep + iA)*nZ, nZ);
+    }
+    /*
     n = (maxZ - minZ + 1)*nAgeStep;
     for(i = 0; i < n; ++i) {
         interpZ = (minZ + i/nAgeStep + 1.)/1000.;
@@ -714,6 +722,7 @@ inline void init_templates_working(struct sed_params *spectra, double z) {
         for(iF = 0; iF < nFlux; ++iF) 
             pData[iF] = interp(interpZ, Z, refSpectra + (iF*nAgeStep+ i%nAgeStep)*nZ, nZ);
     }
+    */
     
     free(obsWaves);
     free(obsData);
