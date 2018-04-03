@@ -363,20 +363,18 @@ int *age_flag(struct csp *histories, int nAgeStep) {
 }
 
 
-/*
-int *Z_flag(struct csp *histories, int nAgeStep) {
-    int *ZFlag = malloc(nAgeStep*sizeof(int));
+int *Z_flag(struct csp *histories, int nMaxZ) {
+    int *ZFlag = malloc(nMaxZ*sizeof(int));
     int nB = histories->nBurst;
     struct ssp *bursts = histories->bursts;
 
-    for(int iZ = 0; iZ < nAgeStep; ++iZ)
+    for(int iZ = 0; iZ < nMaxZ; ++iZ)
         ZFlag[iZ] = 1;
     for(int iB = 0; iB < nB; ++iB)
         ZFlag[(int)(1000*bursts[iB].metals - 0.5)] = 0;
 
     return ZFlag;
 }
-*/
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -662,8 +660,9 @@ inline void dust_absorption(struct sed_params *spectra, struct dust_params *dust
 }
 
 
-inline void init_templates_working(struct sed_params *spectra, double z, int *ageFlag) {
-    int iA, iW, iF, iFW, i, n;
+inline void init_templates_working(struct sed_params *spectra, double z, 
+                                   int *ageFlag, int *ZFlag) {
+    int iA, iW, iF, iFW, iZ, i, n;
 
     int minZ = spectra->minZ;
     int maxZ = spectra->maxZ;   
@@ -776,10 +775,13 @@ inline void init_templates_working(struct sed_params *spectra, double z, int *ag
     // Interploate SED templates along metallicities
     n = (maxZ - minZ + 1)*nAgeStep;
     for(i = 0; i < n; ++i) {
+        iZ = i/nAgeStep;
+        if (ZFlag[iZ])
+            continue;
         iA = i%nAgeStep;
         if (ageFlag[iA])
             continue;
-        interpZ = (minZ + i/nAgeStep + 1.)/1000.;
+        interpZ = (minZ + iZ + 1.)/1000.;
         pData = workingData + i*nFlux;
         for(iF = 0; iF < nFlux; ++iF) 
             pData[iF] = interp(interpZ, Z, refSpectra + (iF*nAgeStep+ iA)*nZ, nZ);
@@ -807,8 +809,12 @@ double *composite_spectra_cext(struct sed_params *spectra,
     g_nThread = nThread;
 
     int iF, iG, iFG;
+
+    int minZ = spectra->minZ;
+    int maxZ = spectra->maxZ;
+    int nMaxZ = maxZ - minZ + 1;
     // Initialise galaxies parameters
-    trim_gal_params(galParams, spectra->minZ, spectra->maxZ);
+    trim_gal_params(galParams, minZ, maxZ);
     double z = galParams->z;
     int nAgeStep= galParams->nAgeStep;
     double *ageStep = galParams->ageStep;
@@ -817,7 +823,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     // Generate templates
     int nFlux = spectra->nFlux;
     size_t readySize = spectra->nZ*nAgeStep*spectra->nWaves*sizeof(double);
-    size_t workingSize = (spectra->maxZ + 1)*nAgeStep*nFlux*sizeof(double);
+    size_t workingSize = nMaxZ*nAgeStep*nFlux*sizeof(double);
     spectra->nAgeStep = nAgeStep;
     spectra->ageStep = ageStep;
     init_templates_integrated(spectra);
@@ -836,7 +842,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     default(none) \
     firstprivate(spectra, dustParams, \
                  z, nAgeStep, ageStep, nGal, histories, \
-                 nFlux, readySize, workingSize, \
+                 nMaxZ, nFlux, readySize, workingSize, \
                  output) \
     num_threads(nThread)
     {
@@ -858,11 +864,14 @@ double *composite_spectra_cext(struct sed_params *spectra,
         omp_spectra.ready = readyData;
         omp_spectra.working = workingData;
         int *ageFlag;
+        int *ZFlag;
         if (dustParams == NULL) {
             ageFlag = calloc(nAgeStep, sizeof(int));
+            ZFlag = calloc(nMaxZ, sizeof(int));
             memcpy(readyData, intData, readySize);
-            init_templates_working(&omp_spectra, z, ageFlag);
+            init_templates_working(&omp_spectra, z, ageFlag, ZFlag);
             free(ageFlag);
+            free(ZFlag);
         }
 
         #pragma omp for schedule(static, 1)
@@ -871,10 +880,12 @@ double *composite_spectra_cext(struct sed_params *spectra,
             // Add dust absorption to SED templates
             if (dustParams != NULL) {
                 ageFlag = age_flag(pHistories, nAgeStep);
+                ZFlag = Z_flag(pHistories, nMaxZ);
                 memcpy(readyData, intData, readySize);
                 dust_absorption(&omp_spectra, dustParams + iG, ageFlag);
-                init_templates_working(&omp_spectra, z, ageFlag);
+                init_templates_working(&omp_spectra, z, ageFlag, ZFlag);
                 free(ageFlag);
+                free(ZFlag);
             }
             // Sum contributions from all progenitors
             nProg = pHistories->nBurst;
