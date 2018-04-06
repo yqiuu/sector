@@ -350,13 +350,15 @@ void trim_gal_params(struct gal_params *galParams, int minZ, int maxZ) {
 
 
 int *age_flag(struct csp *histories, int nAgeStep) {
+    int iA, iB;
+
     int *ageFlag = malloc(nAgeStep*sizeof(int));
     int nB = histories->nBurst;
     struct ssp *bursts = histories->bursts;
 
-    for(int iA = 0; iA < nAgeStep; ++iA)
+    for(iA = 0; iA < nAgeStep; ++iA)
         ageFlag[iA] = 1;
-    for(int iB = 0; iB < nB; ++iB)
+    for(iB = 0; iB < nB; ++iB)
         ageFlag[bursts[iB].index] = 0;
 
     return ageFlag;
@@ -364,13 +366,15 @@ int *age_flag(struct csp *histories, int nAgeStep) {
 
 
 int *Z_flag(struct csp *histories, int nMaxZ) {
+    int iZ, iB;
+
     int *ZFlag = malloc(nMaxZ*sizeof(int));
     int nB = histories->nBurst;
     struct ssp *bursts = histories->bursts;
 
-    for(int iZ = 0; iZ < nMaxZ; ++iZ)
+    for(iZ = 0; iZ < nMaxZ; ++iZ)
         ZFlag[iZ] = 1;
-    for(int iB = 0; iB < nB; ++iB)
+    for(iB = 0; iB < nB; ++iB)
         ZFlag[(int)(1000*bursts[iB].metals - 0.5)] = 0;
 
     return ZFlag;
