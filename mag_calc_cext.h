@@ -9,6 +9,8 @@ struct sed_params {
     int nAge;
     double *age;
     double *raw;
+    // Redshift
+    double z;
     // Filters
     int nFlux;
     int nObs;
@@ -27,7 +29,7 @@ struct sed_params {
 };
 
 
-void shrink_templates_raw(struct sed_params *spectra, double maxAge, double z);
+void shrink_templates_raw(struct sed_params *spectra, double maxAge);
 
 
 //void init_filters(struct sed_params *spectra, double *filters, int nFlux, int nObs,

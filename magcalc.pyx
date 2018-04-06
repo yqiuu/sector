@@ -717,6 +717,8 @@ cdef extern from "mag_calc_cext.h":
         int nAge
         double *age
         double *raw
+        # Redshift
+        double z
         # Filters
         int nFlux
         int nObs
@@ -789,7 +791,7 @@ cdef void free_raw_spectra(sed_params *spectra):
 
 
 cdef extern from "mag_calc_cext.h":
-    void shrink_templates_raw(sed_params *spectra, double maxAge, double z)
+    void shrink_templates_raw(sed_params *spectra, double maxAge)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -1096,6 +1098,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         galParams = read_star_formation_history(fname, snapList[iS], gals[iS], h)
         z = galParams.z
         nGal = galParams.nGal
+        # Set redshift
+        spectra.z = z
         # Convert the format of dust parameters 
         if dust is not None:
             dustParams = init_dust_parameters(dust[iS])
@@ -1140,7 +1144,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         # Read raw SED templates
         init_templates_raw(&spectra, sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
                            minWIdx, maxWIdx)
-        shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1], z)
+        shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
         # Compute spectra
         cOutput = composite_spectra_cext(&spectra, galParams, dustParams,
                                          cOutType, nThread)

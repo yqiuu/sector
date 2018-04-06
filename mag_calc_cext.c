@@ -394,6 +394,8 @@ struct sed_params {
     int nAge;
     double *age;
     double *raw;
+    // Redshift
+    double z;
     // Filters
     int nFlux;
     int nObs;
@@ -412,7 +414,7 @@ struct sed_params {
 };
 
 
-void shrink_templates_raw(struct sed_params *spectra, double maxAge, double z) {
+void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
     if (spectra->filters == NULL)
         return;
 
@@ -424,6 +426,7 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge, double z) {
     int nAge = spectra->nAge;
     double *age = spectra->age;
     double *raw = spectra->raw;
+    double z = spectra->z;
     int nFlux = spectra->nFlux;
     int nRest = nFlux - spectra->nObs;
     int nFW;
@@ -660,7 +663,7 @@ inline void dust_absorption(struct sed_params *spectra, struct dust_params *dust
 }
 
 
-inline void init_templates_working(struct sed_params *spectra, double z, 
+inline void init_templates_working(struct sed_params *spectra,
                                    int *ageFlag, int *ZFlag) {
     int iA, iW, iF, iFW, iZ, i, n;
 
@@ -672,6 +675,7 @@ inline void init_templates_working(struct sed_params *spectra, double z,
     double *waves = spectra->waves;
     double *pWaves;
 
+    double z = spectra->z;
     int nFlux = spectra->nFlux;
     int nObs = spectra->nObs;
     int nRest = nFlux - nObs;
@@ -815,7 +819,6 @@ double *composite_spectra_cext(struct sed_params *spectra,
     int nMaxZ = maxZ - minZ + 1;
     // Initialise galaxies parameters
     trim_gal_params(galParams, minZ, maxZ);
-    double z = galParams->z;
     int nAgeStep= galParams->nAgeStep;
     double *ageStep = galParams->ageStep;
     int nGal = galParams->nGal;
@@ -841,7 +844,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     #pragma omp parallel \
     default(none) \
     firstprivate(spectra, dustParams, \
-                 z, nAgeStep, ageStep, nGal, histories, \
+                 nAgeStep, ageStep, nGal, histories, \
                  nMaxZ, nFlux, readySize, workingSize, \
                  output) \
     num_threads(nThread)
@@ -869,7 +872,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
             ageFlag = calloc(nAgeStep, sizeof(int));
             ZFlag = calloc(nMaxZ, sizeof(int));
             memcpy(readyData, intData, readySize);
-            init_templates_working(&omp_spectra, z, ageFlag, ZFlag);
+            init_templates_working(&omp_spectra, ageFlag, ZFlag);
             free(ageFlag);
             free(ZFlag);
         }
@@ -883,7 +886,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
                 ZFlag = Z_flag(pHistories, nMaxZ);
                 memcpy(readyData, intData, readySize);
                 dust_absorption(&omp_spectra, dustParams + iG, ageFlag);
-                init_templates_working(&omp_spectra, z, ageFlag, ZFlag);
+                init_templates_working(&omp_spectra, ageFlag, ZFlag);
                 free(ageFlag);
                 free(ZFlag);
             }
