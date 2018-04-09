@@ -8,7 +8,6 @@
 //#define JANSKY(x) (3.34e4*(x)*(x))
 #define M_AB(x) (-2.5*log10(x) + 8.9) // Convert Jansky to AB magnitude
 #define TOL 1e-30 // Minimum Flux
-short g_nThread = 1;
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *                                                                             *
@@ -836,7 +835,6 @@ double *composite_spectra_cext(struct sed_params *spectra,
         init_profiler();
         timing_start("Compute magnitudes");
     #endif
-    g_nThread = nThread;
 
     int iF, iG, iFG;
 
