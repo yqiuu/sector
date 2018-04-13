@@ -736,7 +736,7 @@ cdef extern from "mag_calc_cext.h":
         double *working
 
 
-cdef void init_templates_raw(sed_params *spectra, path, maxAge, minWIdx, maxWIdx):
+cdef void init_templates_raw(sed_params *spectra, path, maxAge):
     #=====================================================================
     # The dictionary define by *path* should contain:                               
     #                                                                               
@@ -824,7 +824,7 @@ def HST_filters(filterNames):
     return obsBands
 
 
-def beta_filters(waves):
+def beta_filters():
     #=====================================================================
     # return the filters defined by Calzetti et al. 1994, which is used to
     # calculate the UV continuum slope
@@ -840,14 +840,13 @@ def beta_filters(waves):
                         [1930., 1950.],
                         [2400., 2580.],
                         [1550., 1650.]])
-    minWaves = np.min(windows)
-    maxWaves = np.max(windows)
-    minWIdx = max(0, np.where(waves >= minWaves)[0][0] - 1)
-    maxWIdx = np.where(waves <= maxWaves)[0][-1] + 1
-    return windows, minWIdx, maxWIdx
+    betaBands = np.zeros_like(windows)
+    betaBands[:, 0] = (windows[:, 1] + windows[:, 0])/2.
+    betaBands[:, 1] = windows[:, 1] - windows[:, 0]
+    return betaBands
 
 
-cdef void init_filters(sed_params *spectra, waves, restBands, obsBands, z):
+cdef void init_filters(sed_params *spectra, waves, int nBeta, restBands, obsBands, double z):
     #=====================================================================
     # This function is to generate transmission curves that has the
     # same wavelengths with SED templates. It is called by
@@ -862,7 +861,7 @@ cdef void init_filters(sed_params *spectra, waves, restBands, obsBands, z):
         int iF
         int nRest = len(restBands)
         int nObs = len(obsBands)
-        int nFlux = nObs + nRest
+        int nFlux = nRest + nObs
     nFilterWaves = np.zeros(nFlux, dtype = 'i4')
     filterWaves = np.empty(nFlux, dtype = object)
     filters = np.empty(nFlux, dtype = object)
@@ -877,8 +876,13 @@ cdef void init_filters(sed_params *spectra, waves, restBands, obsBands, z):
             if w > lower and w < upper:
                 newWaves = np.append(newWaves, w)
         newWaves = np.append(newWaves, upper)
-        newFilters = np.full(len(newWaves), 1./np.log(upper/lower))
-        newFilters *= 3.34e4*newWaves
+        if iF < nBeta:
+            newFilters = np.full(len(newWaves), 1.)
+            newFilters /= np.trapz(newFilters, newWaves)
+        else:
+            # Transform the filter such that it can give AB magnitude
+            newFilters = np.full(len(newWaves), 1./np.log(upper/lower))
+            newFilters *= 3.34e4*newWaves
         nFilterWaves[iF] = len(newWaves)
         filterWaves[iF] = newWaves
         filters[iF] = newFilters
@@ -897,41 +901,10 @@ cdef void init_filters(sed_params *spectra, waves, restBands, obsBands, z):
     spectra.nFilterWaves = init_1d_int(nFilterWaves)
     spectra.filterWaves = init_1d_double(np.concatenate(filterWaves).astype('f8'))
     spectra.filters = init_1d_double(np.concatenate(filters).astype('f8'))
-    spectra.logWaves = NULL
-
-
-cdef void init_filters_beta(sed_params *spectra, waves):
-    windows = beta_filters(waves)[0]
-    cdef:
-        int iF
-        int nFlux = len(windows)
-    nFilterWaves = np.zeros(nFlux, dtype = 'i4')
-    filterWaves = np.empty(nFlux, dtype = object)
-    filters = np.empty(nFlux, dtype = object)
-    for iF in xrange(nFlux):
-        lower, upper = windows[iF]
-        if lower < min(waves) or upper > max(waves):
-            raise ValueError("Filter wavelength ranges are beyond SED templates")
-        newWaves = np.array([lower])
-        for w in waves:
-            if w > lower and w < upper:
-                newWaves = np.append(newWaves, w)
-        newWaves = np.append(newWaves, upper)
-        if iF < nFlux - 1:
-            newFilters = np.full(len(newWaves), 1.)
-            newFilters /= np.trapz(newFilters, newWaves)
-        else:
-            newFilters = np.full(len(newWaves), 1./np.log(upper/lower))
-            newFilters *= 3.34e4*newWaves
-        nFilterWaves[iF] = len(newWaves)
-        filterWaves[iF] = newWaves
-        filters[iF] = newFilters
-    spectra.nFlux = nFlux
-    spectra.nObs = 0
-    spectra.nFilterWaves = init_1d_int(nFilterWaves)
-    spectra.filterWaves = init_1d_double(np.concatenate(filterWaves).astype('f8'))
-    spectra.filters = init_1d_double(np.concatenate(filters).astype('f8'))
-    spectra.logWaves = init_1d_double(np.log(np.mean(windows, axis = 1)))
+    if nBeta > 0:
+        spectra.logWaves = init_1d_double(np.log(restBands[:, 0]))
+    else:
+        spectra.logWaves = NULL
 
 
 cdef void free_filters(sed_params *spectra):
@@ -1109,15 +1082,11 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         else:
             spectra.LyAbsorption = NULL
         # Generate Filters
-        minWIdx = None
-        maxWIdx = None
         if outType == 'ph':
-            #minWIdx = 10
-            #maxWIdx = 500
             nRest = len(restBands)
             nObs = len(obsBands)
             nFlux = nRest + nObs
-            init_filters(&spectra, waves, restBands, obsBands, z)
+            init_filters(&spectra, waves, 0, restBands, obsBands, z)
             cOutType = 0
         elif outType == 'sp':
             nFlux = nWaves
@@ -1133,17 +1102,16 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             spectra.logWaves = NULL
             cOutType = 1
         elif outType == 'UV slope':
-            centreWaves, minWIdx, maxWIdx = beta_filters(waves)
-            centreWaves = np.mean(centreWaves, axis = 1)
+            betaBands = beta_filters()
+            centreWaves = betaBands[:, 0]
             nRest = len(centreWaves)
             nFlux = nRest
-            init_filters_beta(&spectra, waves)
+            init_filters(&spectra, waves, nRest - 1, betaBands, [], z)
             cOutType = 2
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
-        init_templates_raw(&spectra, sedPath, galParams.ageStep[galParams.nAgeStep - 1], 
-                           minWIdx, maxWIdx)
+        init_templates_raw(&spectra, sedPath, galParams.ageStep[galParams.nAgeStep - 1])
         shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
         # Compute spectra
         cOutput = composite_spectra_cext(&spectra, galParams, dustParams,
