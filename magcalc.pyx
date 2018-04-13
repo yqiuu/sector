@@ -1059,8 +1059,6 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
         int nR = 3
 
-        double *absorption = NULL
-
         dust_params *dustParams = NULL
 
         double *cOutput 
