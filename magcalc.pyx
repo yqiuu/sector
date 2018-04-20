@@ -410,8 +410,7 @@ cdef csp *trace_properties(int tSnap, int[:] indices):
     return histories
 
 
-cdef gal_params *read_star_formation_history(fname, snapshot, gals, h):
-    cdef gal_params *galParams = <gal_params*>malloc(sizeof(gal_params))
+cdef void *read_star_formation_history(gal_params *galParams, fname, snapshot, gals, h):
     if type(gals) is str:
         read_gal_params(galParams, gals)
     else:
@@ -489,6 +488,8 @@ def save_star_formation_history(fname, snapList, idxList, h,
     cdef:
         int iS, nSnap
         int snap, snapMax, snapMin
+        gal_params galParams
+
     if isscalar(snapList):
         snapMax = snapList
         nSnap = 1
@@ -499,12 +500,10 @@ def save_star_formation_history(fname, snapList, idxList, h,
         nSnap = len(snapList)
     snapMin = read_meraxes(fname, snapMax, h)
     # Read and save galaxy merge trees
-    cdef gal_params *galParams = NULL
     for iS in xrange(nSnap):
-        galParams = read_star_formation_history(fname, snapList[iS], idxList[iS], h)
-        save_gal_params(galParams, get_output_name(prefix, '.bin', snapList[iS], outPath))
-        free_gal_params(galParams)
-    free(galParams)
+        read_star_formation_history(&galParams, fname, snapList[iS], idxList[iS], h)
+        save_gal_params(&galParams, get_output_name(prefix, '.bin', snapList[iS], outPath))
+        free_gal_params(&galParams)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -1045,7 +1044,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
     waves = get_wavelength(sedPath)
     cdef:
         sed_params spectra
-        gal_params *galParams = NULL 
+        gal_params galParams
         double z
         int nGal
 
@@ -1065,7 +1064,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
     for iS in xrange(nSnap):
         # Read star formation rates and metallcities form galaxy merger trees
-        galParams = read_star_formation_history(fname, snapList[iS], gals[iS], h)
+        read_star_formation_history(&galParams, fname, snapList[iS], gals[iS], h)
         z = galParams.z
         nGal = galParams.nGal
         # Set redshift
@@ -1111,7 +1110,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         init_templates_raw(&spectra, sedPath)
         shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
         # Compute spectra
-        cOutput = composite_spectra_cext(&spectra, galParams, dustParams,
+        cOutput = composite_spectra_cext(&spectra, &galParams, dustParams,
                                          cOutType, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':
@@ -1153,8 +1152,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         if len(snapList) == 1:
             mags = DataFrame(deepcopy(output), index = indices, columns = columns)
 
-        free_gal_params(galParams)
-        free(galParams)
+        free_gal_params(&galParams)
         free(dustParams)
         free(spectra.LyAbsorption)
         free_filters(&spectra)
