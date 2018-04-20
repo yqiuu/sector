@@ -736,7 +736,7 @@ cdef extern from "mag_calc_cext.h":
         double *working
 
 
-cdef void init_templates_raw(sed_params *spectra, path, maxAge):
+cdef void init_templates_raw(sed_params *spectra, path):
     #=====================================================================
     # The dictionary define by *path* should contain:                               
     #                                                                               
@@ -1048,7 +1048,6 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         gal_params *galParams = NULL 
         double z
         int nGal
-        int[:] mvIndices
 
         int nWaves = len(waves)
         int nRest = 0
@@ -1109,7 +1108,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
-        init_templates_raw(&spectra, sedPath, galParams.ageStep[galParams.nAgeStep - 1])
+        init_templates_raw(&spectra, sedPath)
         shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
         # Compute spectra
         cOutput = composite_spectra_cext(&spectra, galParams, dustParams,
@@ -1145,8 +1144,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             columns[-1] = "M1600-100"
         # Save the output to the disk
         if type(gals[0]) is str:
-            mvIndices = <int[:nGal]>galParams.indices
-            indices = np.asarray(mvIndices, dtype = 'i4')
+            indices = np.asarray(<int[:nGal]>galParams.indices, dtype = 'i4')
         else:
             indices = gals[iS]
         DataFrame(output, index = indices, columns = columns).\
@@ -1212,7 +1210,7 @@ cdef class calibration:
             # Generate filters
             init_filters(pSpectra, waves, nBeta, betaBands, [], 0.)
             # Read raw SED templates
-            init_templates_raw(pSpectra, sedPath, pGalParams.ageStep[pGalParams.nAgeStep - 1])
+            init_templates_raw(pSpectra, sedPath)
             shrink_templates_raw(pSpectra, pGalParams.ageStep[pGalParams.nAgeStep - 1])
             #
             pGalParams += 1
@@ -1272,8 +1270,7 @@ cdef class calibration:
             columns = []
             columns = np.append(["beta", "norm", "R"], centreWaves)
             columns[-1] = "M1600-100"
-            mvIndices = <int[:nGal]>pGalParams.indices
-            indices = np.asarray(mvIndices, dtype = 'i4')
+            indices = np.asarray(<int[:nGal]>pGalParams.indices, dtype = 'i4')
             DataFrame(output, index = indices, columns = columns).\
             to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
 
