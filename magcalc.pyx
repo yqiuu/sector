@@ -99,7 +99,6 @@ cdef void free_gal_params(gal_params *galParams):
     free(galParams.histories)
     free(galParams.ageStep)
     free(galParams.indices)
-    free(galParams)
 
 
 cdef void save_gal_params(gal_params *galParams, char *fname):
@@ -500,11 +499,12 @@ def save_star_formation_history(fname, snapList, idxList, h,
         nSnap = len(snapList)
     snapMin = read_meraxes(fname, snapMax, h)
     # Read and save galaxy merge trees
-    cdef gal_params *galParams
+    cdef gal_params *galParams = NULL
     for iS in xrange(nSnap):
         galParams = read_star_formation_history(fname, snapList[iS], idxList[iS], h)
         save_gal_params(galParams, get_output_name(prefix, '.bin', snapList[iS], outPath))
         free_gal_params(galParams)
+    free(galParams)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -1156,6 +1156,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             mags = DataFrame(deepcopy(output), index = indices, columns = columns)
 
         free_gal_params(galParams)
+        free(galParams)
         free(dustParams)
         free(spectra.LyAbsorption)
         free_filters(&spectra)
@@ -1168,6 +1169,116 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
     if len(snapList) == 1:
         return mags
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Calibration                                                                   #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+cdef class calibration:
+    cdef:
+        int nSnap
+        gal_params *galParams
+        sed_params *spectra
+        short nThread
+
+    def __cinit__(self, sfhList, sedPath, nThread = 1):
+        cdef:
+            int iS
+            int nSnap = len(sfhList)
+            gal_params *pGalParams
+            sed_params *pSpectra
+            int nBeta
+
+        self.nSnap = nSnap
+        self.galParams = <gal_params*>malloc(nSnap*sizeof(gal_params))
+        self.spectra = <sed_params*>malloc(nSnap*sizeof(sed_params))
+        self.nThread = <short>nThread
+
+        waves = get_wavelength(sedPath)
+        betaBands = beta_filters()
+        nBeta = len(betaBands) - 1
+
+        pGalParams = self.galParams
+        pSpectra = self.spectra
+        for iS in xrange(nSnap):
+            # Read star formation rates and metallcities form galaxy merger trees
+            read_gal_params(pGalParams, sfhList[iS])
+            # Set redshift
+            pSpectra.z = pGalParams.z
+            #
+            pSpectra.LyAbsorption = NULL
+            # Generate filters
+            init_filters(pSpectra, waves, nBeta, betaBands, [], 0.)
+            # Read raw SED templates
+            init_templates_raw(pSpectra, sedPath, pGalParams.ageStep[pGalParams.nAgeStep - 1])
+            shrink_templates_raw(pSpectra, pGalParams.ageStep[pGalParams.nAgeStep - 1])
+            #
+            pGalParams += 1
+            pSpectra += 1
+
+
+    def __dealloc__(self):
+        cdef:
+            int iS
+            int nSnap = self.nSnap
+            gal_params *pGalParams = self.galParams
+            sed_params *pSpectra = self.spectra
+            
+        for iS in xrange(nSnap):
+            free_gal_params(pGalParams)
+            free_filters(pSpectra)
+            free_raw_spectra(pSpectra)
+            #
+            pGalParams += 1
+            pSpectra += 1
+
+        free(self.galParams)
+        free(self.spectra)
+
+
+    def run(self, dust, prefix = 'mags', outPath = './'):
+        cdef:
+            int iS
+            int nSnap = self.nSnap
+            gal_params *pGalParams = self.galParams
+            sed_params *pSpectra = self.spectra
+
+            int nGal
+            dust_params *dustParams = NULL
+
+            int nFlux = pSpectra.nFlux
+            int nR = 3
+            int[:] mvIndices
+            double *cOutput
+            double[:] mvOutput
+
+        betaBands = beta_filters()
+        centreWaves = betaBands[:, 0]
+
+        snapList = [100, 78, 63]
+        for iS in xrange(nSnap):
+            # Compute spectra
+            nGal = pGalParams.nGal
+            dustParams = init_dust_parameters(dust[iS])
+            cOutput = composite_spectra_cext(pSpectra, pGalParams, dustParams, 2, self.nThread)
+            free(dustParams)
+            mvOutput = <double[:nGal*(nFlux + nR)]>cOutput
+            output = np.hstack([np.asarray(mvOutput[nGal*nFlux:], 
+                                           dtype = 'f4').reshape(nGal, -1),
+                                np.asarray(mvOutput[:nGal*nFlux], 
+                                           dtype = 'f4').reshape(nGal, -1)])
+            columns = []
+            columns = np.append(["beta", "norm", "R"], centreWaves)
+            columns[-1] = "M1600-100"
+            mvIndices = <int[:nGal]>pGalParams.indices
+            indices = np.asarray(mvIndices, dtype = 'i4')
+            DataFrame(output, index = indices, columns = columns).\
+            to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
+
+            pGalParams += 1
+            pSpectra += 1
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
