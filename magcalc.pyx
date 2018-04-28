@@ -1285,46 +1285,46 @@ cdef class calibration:
         free(self.spectra)
 
 
-    def run(self, dust, prefix = 'mags', outPath = './'):
+    def run(self, dust):
         cdef:
             int iS
             int nSnap = self.nSnap
             gal_params *pGalParams = self.galParams
             sed_params *pSpectra = self.spectra
-
-            int nGal
+            int iG, nGal
             dust_params *dustParams = NULL
-
+            double *output
+            double *pOutput
             int nFlux = pSpectra.nFlux
+            int iM1600 = nFlux - 1
             int nR = 3
-            int[:] mvIndices
-            double *cOutput
-            double[:] mvOutput
-
-        betaBands = beta_filters()
-        centreWaves = betaBands[:, 0]
-
-        snapList = [100, 78, 63]
+            int iBeta = 0
+            double[:] mvM1600
+            double[:] mvBeta
+        M1600 = np.empty(nSnap, object)
+        beta = np.empty(nSnap, object)
         for iS in xrange(nSnap):
             # Compute spectra
-            nGal = pGalParams.nGal
             dustParams = init_dust_parameters(dust[iS])
-            cOutput = composite_spectra_cext(pSpectra, pGalParams, dustParams, 2, self.nThread)
+            output = composite_spectra_cext(pSpectra, pGalParams, dustParams, 2, self.nThread)
+            pOutput = output
+            nGal = pGalParams.nGal
+            mvM1600 = np.zeros(nGal, dtype = 'f8')
+            mvBeta = np.zeros(nGal, dtype = 'f8')
+            for iG in xrange(nGal):
+                mvM1600[iG] = pOutput[iM1600]
+                pOutput += nFlux
+            for iG in xrange(nGal):
+                mvBeta[iG] = pOutput[iBeta]
+                pOutput += nR
+            M1600[iS] = np.asarray(mvM1600)
+            beta[iS] = np.asarray(mvBeta)
             free(dustParams)
-            mvOutput = <double[:nGal*(nFlux + nR)]>cOutput
-            output = np.hstack([np.asarray(mvOutput[nGal*nFlux:], 
-                                           dtype = 'f4').reshape(nGal, -1),
-                                np.asarray(mvOutput[:nGal*nFlux], 
-                                           dtype = 'f4').reshape(nGal, -1)])
-            columns = []
-            columns = np.append(["beta", "norm", "R"], centreWaves)
-            columns[-1] = "M1600-100"
-            indices = np.asarray(<int[:nGal]>pGalParams.indices, dtype = 'i4')
-            DataFrame(output, index = indices, columns = columns).\
-            to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
-
+            free(output)
+            #
             pGalParams += 1
             pSpectra += 1
+        return M1600, beta
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
