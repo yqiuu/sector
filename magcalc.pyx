@@ -506,6 +506,57 @@ def save_star_formation_history(fname, snapList, idxList, h,
         free_gal_params(&galParams)
 
 
+def get_mean_star_formation_rate(sfhPath, double meanAge):
+    cdef:
+        int iA, iB, iG
+        gal_params galParams
+        int nMaxStep = 0
+        int nAgeStep
+        double *ageStep
+        int nGal
+        csp *pHistories
+        int nBurst
+        ssp *pBursts
+        short index
+        double dt, totalMass
+        double[:] meanSFR
+    # Read galaxy parameters
+    read_gal_params(&galParams, sfhPath)
+    # Find nMaxStep
+    meanAge *= 1e6 # Convert Myr to yr
+    nAgeStep = galParams.nAgeStep
+    ageStep = galParams.ageStep
+    for nMaxStep in xrange(nAgeStep):
+        if ageStep[nMaxStep] >= meanAge:
+            break
+    if nMaxStep == 0:
+        raise ValueError("Mean age is smaller the first step")
+    meanAge = ageStep[nMaxStep - 1]
+    print "Correct meanAge to %.1f Myr"%(meanAge*1e-6)
+    # Compute mean SFR
+    nGal = galParams.nGal
+    pHistories = galParams.histories
+    meanSFR = np.zeros(nGal, dtype = 'f8')
+    for iG in xrange(nGal):
+        nBurst = pHistories.nBurst
+        pBursts = pHistories.bursts
+        totalMass = 0.
+        for iB in xrange(nBurst):
+            index = pBursts.index
+            if index < nMaxStep:
+                if index == 0:
+                    dt = ageStep[0]
+                else:
+                    dt = ageStep[index] - ageStep[index - 1]
+                totalMass += pBursts.sfr*dt
+            pBursts += 1
+        meanSFR[iG] = totalMass/meanAge
+        pHistories += 1
+    return DataFrame(np.asarray(meanSFR), index = np.asarray(<int[:nGal]>galParams.indices), 
+                     columns = ["MeanSFR"])
+
+            
+
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
 # Functions to compute the IGM absorption                                       #
