@@ -611,10 +611,12 @@ inline void dust_absorption(struct sed_params *spectra, struct dust_params *dust
         t0 = 0.;
         t1 = 0.;
     }
-    else if(tBC < ageStep[0]) {
+    else if (tBC < ageStep[0]) {
         iAgeBC = 0;
         t0 = age[0];
         t1 = ageStep[0];
+        if (tBC < t0)
+            tBC = t0;
     }
     else {
         iAgeBC = bisection_search(tBC, ageStep, nAgeStep) + 1;
