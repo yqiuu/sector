@@ -13,8 +13,8 @@ for e in exts:
     e.cython_directives = {"embedsignature":True}
 
 setup(name = 'magcalc',
-      version = '0.2.4',
-      description = 'Package to compute SEDs for a semi-analytic model',
+      version = '0.3.0',
+      description = 'Package to compute SEDs for semi-analytic models',
       author = 'Yisheng Qiu',
       author_email = 'yishengq@student.unimelb.edu.au',
       ext_modules = exts,
