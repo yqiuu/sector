@@ -480,7 +480,7 @@ def save_star_formation_history(fname, snapList, idxList, h,
         Dimensionless Hubble constant. This is substituded into all
         involved functions in ``meraxes`` python package.
     prefix: str
-        The name of the output file is 'prefix_XXX.hdf5', where XXX is
+        The name of the output file is 'prefix_XXX.bin', where XXX is
         number of the snapshot.
     outPath: str
         Path to the output.
