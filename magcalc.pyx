@@ -101,6 +101,88 @@ cdef void free_gal_params(gal_params *galParams):
     free(galParams.indices)
 
 
+cdef class meraxes_output:
+    cdef:
+        # poniters to store data
+        int **firstProgenitor
+        int **nextProgenitor
+        float **metals
+        float **sfr
+        #
+        int minSnap
+        int maxSnap
+
+
+    cdef __cinit__(self, fname, int maxSnap, double h):
+        #=====================================================================
+        # Load model output
+        #=====================================================================
+        cdef:
+            int snapNum = snapMax+ 1
+            int snapMin = snapMax
+            int snap, N
+            int[:] intMemview1, intMemview2
+            float[:] floatMemview1, floatMemview2
+        timing_start("# Read meraxes output")
+        self.firstProgenitor = <int**>malloc(snapNum*sizeof(int*))
+        self.nextProgenitor = <int**>malloc(snapMax*sizeof(int*))
+        # Unit: 1e10 M_sun (New metallicity tracer)
+        self.metals = <float**>malloc(snapNum*sizeof(float*))
+        # Unit: M_sun/yr
+        self.sfr = <float**>malloc(snapNum*sizeof(float*))
+        meraxes.set_little_h(h = h)
+        for snap in xrange(snapMax, -1, -1):
+            try:
+                # Copy metallicity and star formation rate to the pointers
+                gals = meraxes.io.read_gals(fname, snap,
+                                            props = ["ColdGas", "MetalsColdGas", "Sfr"])
+                print ''
+                # <<<<< Old Metallicity tracer
+                metals = gals["MetalsColdGas"]/gals["ColdGas"]
+                metals[isnan(metals)] = 0.001
+                self.metals[snap] = init_1d_float(metals)
+                # >>>>> New metallicity tracer
+                #g_metals[snap] = init_1d_float(gals["MetalsStellarMass"])
+                # <<<<<
+                self.sfr[snap] = init_1d_float(gals["Sfr"])
+                snapMin = snap
+                gals = None
+            except IndexError:
+                print "# No galaxies in snapshot %d"%snap
+                break;
+        print "# snapMin = %d"%snapMin
+        for snap in xrange(snapMin, snapNum):
+            # Copy first progenitor indices to the pointer
+            self.firstProgenitor[snap] = \
+            init_1d_int(meraxes.io.read_firstprogenitor_indices(fname, snap))
+            # Copy next progenitor indices to the pointer
+            if snap < snapMax:
+                self.nextProgenitor[snap] = \
+                init_1d_int(meraxes.io.read_nextprogenitor_indices(fname, snap))
+        self.snapMin = snapMin
+        self.snapMax = snapMax
+        timing_end()
+        return snapMin
+
+    
+    cdef __dealloc__(self):
+        cdef int iS
+        # There is no indices in g_nextProgenitor[snapMax]
+        for iS in xrange(self.snapMin, self.snapMax):
+            free(self.nextProgenitor[i])
+        for iS in xrange(self.snapMin, self.snapMax + 1):
+            free(self.firstProgenitor[i])
+            free(self.metals[i])
+            free(self.sfr[i])
+        free(self.firstProgenitor)
+        free(self.nextProgenitor)
+        free(self.metals)
+        free(self.sfr)
+
+
+
+
+
 cdef void save_gal_params(gal_params *galParams, char *fname):
     cdef:
         int iA, iG
