@@ -1,3 +1,5 @@
+# cython: c_string_encoding = ascii
+
 import os, sys
 from warnings import warn
 from time import time
