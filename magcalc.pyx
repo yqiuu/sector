@@ -103,22 +103,32 @@ cdef void free_gal_params(gal_params *galParams):
     free(galParams.indices)
 
 
+DEF MAX_NODE = 100000
+
 cdef class meraxes_output:
     cdef:
-        # poniters to store data
+        object fname
+        double h
+        # Poniters to store data
         int **firstProgenitor
         int **nextProgenitor
         float **metals
         float **sfr
+        # Trace parameters
+        int tSnap
+        ssp *bursts
+        int nBurst
         #
         int minSnap
         int maxSnap
 
 
-    cdef __cinit__(self, fname, int maxSnap, double h):
+    def __cinit__(self, fname, int snapMax, double h):
         #=====================================================================
         # Load model output
         #=====================================================================
+        self.fname = fname
+        self.h = h
         cdef:
             int snapNum = snapMax+ 1
             int snapMin = snapMax
@@ -139,13 +149,9 @@ cdef class meraxes_output:
                 gals = meraxes.io.read_gals(fname, snap,
                                             props = ["ColdGas", "MetalsColdGas", "Sfr"])
                 print ''
-                # <<<<< Old Metallicity tracer
                 metals = gals["MetalsColdGas"]/gals["ColdGas"]
                 metals[isnan(metals)] = 0.001
                 self.metals[snap] = init_1d_float(metals)
-                # >>>>> New metallicity tracer
-                #g_metals[snap] = init_1d_float(gals["MetalsStellarMass"])
-                # <<<<<
                 self.sfr[snap] = init_1d_float(gals["Sfr"])
                 snapMin = snap
                 gals = None
@@ -164,25 +170,87 @@ cdef class meraxes_output:
         self.snapMin = snapMin
         self.snapMax = snapMax
         timing_end()
-        return snapMin
+        # This varible is used to trace progenitors
+        self.bursts = <ssp*>malloc(MAX_NODE*sizeof(ssp))
 
     
-    cdef __dealloc__(self):
+    def __dealloc__(self):
         cdef int iS
-        # There is no indices in g_nextProgenitor[snapMax]
+        # Free nextProgenitor. There is no indices in nextProgenitor[snapMax]
         for iS in xrange(self.snapMin, self.snapMax):
-            free(self.nextProgenitor[i])
+            free(self.nextProgenitor[iS])
+        # Free other pointers
         for iS in xrange(self.snapMin, self.snapMax + 1):
-            free(self.firstProgenitor[i])
-            free(self.metals[i])
-            free(self.sfr[i])
+            free(self.firstProgenitor[iS])
+            free(self.metals[iS])
+            free(self.sfr[iS])
         free(self.firstProgenitor)
         free(self.nextProgenitor)
         free(self.metals)
         free(self.sfr)
+        # This varible is used to trace progenitors
+        free(self.bursts)
 
 
+    cdef void trace_progenitors(self, int snap, int galIdx):
+        cdef:
+            float sfr
+            ssp *pBursts
+            int nProg
+        if galIdx >= 0:
+            sfr = self.sfr[snap][galIdx]
+            if sfr > 0.:
+                self.nBurst += 1
+                nProg = self.nBurst
+                if (nProg >= MAX_NODE):
+                    raise MemoryError("Number of progenitors exceeds MAX_NODE")
+                pBursts = self.bursts + nProg
+                pBursts.index = self.tSnap - snap
+                pBursts.metals = self.metals[snap][galIdx]
+                pBursts.sfr = sfr
+            self.trace_progenitors(snap - 1, self.firstProgenitor[snap][galIdx])
+            self.trace_progenitors(snap, self.nextProgenitor[snap][galIdx])
 
+
+    cdef csp *trace_properties(self, int tSnap, int[:] indices):
+        cdef:
+            int iG
+            int nGal = indices.shape[0]
+            csp *histories = <csp*>malloc(nGal*sizeof(csp))
+            csp *pHistories
+            ssp bursts[MAX_NODE]
+            int galIdx
+            int nProg
+            float sfr
+            size_t memSize
+            size_t totalMemSize = 0
+        timing_start("# Read galaxies properties")
+        for iG in xrange(nGal):
+            galIdx = indices[iG]
+            nProg = -1
+            sfr = self.sfr[tSnap][galIdx]
+            if sfr > 0.:
+                nProg += 1
+                bursts[nProg].index = 0
+                bursts[nProg].metals = self.metals[tSnap][galIdx]
+                bursts[nProg].sfr = sfr
+            self.nBurst = nProg
+            self.trace_progenitors(tSnap - 1, self.firstProgenitor[tSnap][galIdx])
+            nProg = self.nBurst + 1
+            pHistories = histories + iG
+            pHistories.nBurst = nProg
+            if nProg == 0:
+                pHistories.bursts = NULL
+                print "Warning: snapshot %d, index %d"%(tSnap, galIdx)
+                print "         the star formation rate is zero throughout the histroy"
+            else:
+                memSize = nProg*sizeof(ssp)
+                pHistories.bursts = <ssp*>malloc(memSize)
+                memcpy(pHistories.bursts, bursts, memSize)
+                totalMemSize += memSize
+        print "# %.1f MB memory has been allocted"%(totalMemSize/1024./1024.)
+        timing_end()
+        return histories
 
 
 cdef void save_gal_params(gal_params *galParams, char *fname):
@@ -265,286 +333,29 @@ cdef void read_gal_params(gal_params *galParams, char *fname):
     timing_end()
 
 
-cdef:
-    int **g_firstProgenitor = NULL
-    int **g_nextProgenitor = NULL
-    float **g_metals = NULL
-    float **g_sfr = NULL
-    # >>>>> New metallicity tracer
-    #float *g_dTime
-    # <<<<<
-
-
-def read_meraxes(fname, int snapMax, h):
-    #=====================================================================
-    # This function reads meraxes output. It is called by galaxy_mags(...).
-    # Meraxes output is stored by g_firstProgenitor, g_nextProgenitor, g_metals
-    # and g_sfr. They are external variables of mag_calc_cext.c
-    #
-    # fname: path of the meraxes output
-    # snapMax: start snapshot
-    # h: liitle h
-    #
-    # Return: the smallest snapshot number that contains a galaxy
-    #=====================================================================
-    cdef:
-        int snapNum = snapMax+ 1
-        int snapMin = snapMax
-        int snap, N
-        int[:] intMemview1, intMemview2
-        float[:] floatMemview1, floatMemview2
-    global g_firstProgenitor
-    global g_nextProgenitor
-    global g_metals
-    global g_sfr
-    # >>>>> New metallicity tracer
-    #global g_dTime
-    # <<<<<
-    timing_start("# Read meraxes output")
-    g_firstProgenitor = <int**>malloc(snapNum*sizeof(int*))
-    g_nextProgenitor = <int**>malloc(snapMax*sizeof(int*))
-    # Unit: 1e10 M_sun (New metallicity tracer)
-    g_metals = <float**>malloc(snapNum*sizeof(float*))
-    # Unit: M_sun/yr
-    g_sfr = <float**>malloc(snapNum*sizeof(float*))
-    # >>>>>  New metallicity tracer
-    # Unit: Myr
-    #g_dTime = init_1d_float(np.append([0], -np.diff(meraxes.io.read_snaplist(fname, h)[2])) \
-    #                        .astype('f4'))
-    # <<<<<
-    meraxes.set_little_h(h = h)
-    for snap in xrange(snapMax, -1, -1):
-        try:
-            # Copy metallicity and star formation rate to the pointers
-            gals = meraxes.io.read_gals(fname, snap,
-                                        props = ["ColdGas", "MetalsColdGas", "Sfr"])
-            print ''
-            # <<<<< Old Metallicity tracer
-            metals = gals["MetalsColdGas"]/gals["ColdGas"]
-            metals[isnan(metals)] = 0.001
-            g_metals[snap] = init_1d_float(metals)
-            # >>>>> New metallicity tracer
-            #g_metals[snap] = init_1d_float(gals["MetalsStellarMass"])
-            # <<<<<
-            g_sfr[snap] = init_1d_float(gals["Sfr"])
-            snapMin = snap
-            gals = None
-        except IndexError:
-            print "# No galaxies in snapshot %d"%snap
-            break;
-    print "# snapMin = %d"%snapMin
-    for snap in xrange(snapMin, snapNum):
-        # Copy first progenitor indices to the pointer
-        g_firstProgenitor[snap] = \
-        init_1d_int(meraxes.io.read_firstprogenitor_indices(fname, snap))
-        # Copy next progenitor indices to the pointer
-        if snap < snapMax:
-            g_nextProgenitor[snap] = \
-            init_1d_int(meraxes.io.read_nextprogenitor_indices(fname, snap))
-
-    timing_end()
-    return snapMin
-
-
-cdef void free_meraxes(int snapMin, int snapMax):
-    #=====================================================================
-    # Function to free g_firstProgenitor, g_nextProgenitor,
-    # g_metals, and g_sfr
-    #=====================================================================
-    cdef int i
-    # There is no indices in g_nextProgenitor[snapMax]
-    for i in xrange(snapMin, snapMax):
-        free(g_nextProgenitor[i])
-
-    snapMax += 1
-    for i in xrange(snapMin, snapMax):
-        free(g_firstProgenitor[i])
-        free(g_metals[i])
-        free(g_sfr[i])
-
-    free(g_firstProgenitor)
-    free(g_nextProgenitor)
-    free(g_metals)
-    free(g_sfr)
-    # >>>>>  New metallicity tracer
-    #free(g_dTime)
-    # <<<<<
-
-
-cdef struct trace_params:
-    int **firstProgenitor
-    int **nextProgenitor
-    # Unit: 1e10 M_sum (New metallcitiy tracer)
-    float **metals
-    # Unit: 1 M_sun/yr
-    float **sfr
-    # Unit: 1 Myr
-    float *dTime
-    int tSnap
-    ssp *bursts
-    int nBurst
-
-
-DEF MAX_NODE = 100000
-
-cdef void trace_progenitors(int snap, int galIdx, trace_params *args):
-    cdef:
-        float sfr
-        ssp *pBursts
-        int nProg
-    if galIdx >= 0:
-        sfr = args.sfr[snap][galIdx]
-        if sfr > 0.:
-            args.nBurst += 1
-            nProg = args.nBurst
-            if (nProg >= MAX_NODE):
-                raise MemoryError("Number of progenitors exceeds MAX_NODE")
-            pBursts = args.bursts + nProg
-            pBursts.index = args.tSnap - snap
-            # <<<<< Old metallicity tracer
-            pBursts.metals = args.metals[snap][galIdx]
-            # >>>>> New metallicity tracer
-            #pBursts.metals = trace_metallicity(snap, galIdx, args)
-            # <<<<<
-            pBursts.sfr = sfr
-            #print "snap %d, galIdx %d, metals %.3f sfr %.3f\n"%(snap, galIdx,
-            #                                                    args.metals[snap][galIdx],
-            #                                                    sfr)
-
-        trace_progenitors(snap - 1, args.firstProgenitor[snap][galIdx], args)
-        trace_progenitors(snap, args.nextProgenitor[snap][galIdx], args)
-
-
-cdef inline float trace_metallicity(int snap, int galIdx, trace_params *args):
-    cdef:
-        float progMetalsMass = 0
-        int progSnap = snap - 1
-        int progIdx = args.firstProgenitor[snap][galIdx]
-    if progIdx < 0:
-        return args.metals[snap][galIdx]/args.sfr[snap][galIdx]/args.dTime[snap]*1e4
-        # The factor 1e4 is from the unit conversion
-    else:
-        progMetalsMass += args.metals[progSnap][progIdx]
-        progIdx = args.nextProgenitor[progSnap][progIdx]
-        while(progIdx > 0):
-            progMetalsMass += args.metals[progSnap][progIdx]
-            progIdx = args.nextProgenitor[progSnap][progIdx]
-        return (args.metals[snap][galIdx] - progMetalsMass) \
-               /args.sfr[snap][galIdx]/args.dTime[snap]*1e4
-
-
-cdef csp *trace_properties(int tSnap, int[:] indices):
-    cdef:
-        int iG
-        int nGal = indices.shape[0]
-
-        size_t memSize
-        size_t totalMemSize = 0
-
-        csp *histories = <csp*>malloc(nGal*sizeof(csp))
-        csp *pHistories
-        ssp bursts[MAX_NODE]
-        trace_params args
-
-        int galIdx
-        int nProg
-        float sfr
-
-    args.firstProgenitor = g_firstProgenitor
-    args.nextProgenitor = g_nextProgenitor
-    args.metals = g_metals
-    args.sfr = g_sfr
-    # >>>>>  New metallicity tracer
-    #args.dTime = g_dTime
-    # <<<<<
-    args.tSnap = tSnap
-    args.bursts = bursts
-
-    timing_start("# Read galaxies properties")
-    for iG in xrange(nGal):
-        galIdx = indices[iG]
-        nProg = -1
-        sfr = args.sfr[tSnap][galIdx]
-        if sfr > 0.:
-            nProg += 1
-            bursts[nProg].index = 0
-            # <<<<< Old metallicity tracer
-            bursts[nProg].metals = args.metals[tSnap][galIdx]
-            # >>>>> New metallicity tracer
-            #bursts[nProg].metals = trace_metallicity(tSnap, galIdx, &args)
-            # <<<<<
-            bursts[nProg].sfr = sfr
-        args.nBurst = nProg
-        trace_progenitors(tSnap - 1, args.firstProgenitor[tSnap][galIdx], &args)
-        nProg = args.nBurst + 1
-        pHistories = histories + iG
-        pHistories.nBurst = nProg
-        if nProg == 0:
-            pHistories.bursts = NULL
-            print "Warning: snapshot %d, index %d"%(tSnap, galIdx)
-            print "         the star formation rate is zero throughout the histroy"
-        else:
-            memSize = nProg*sizeof(ssp)
-            pHistories.bursts = <ssp*>malloc(memSize)
-            memcpy(pHistories.bursts, bursts, memSize)
-            totalMemSize += memSize
-
-    print "# %.1f MB memory has been allocted"%(totalMemSize/1024./1024.)
-    timing_end()
-    return histories
-
-
-cdef void *read_star_formation_history(gal_params *galParams, fname, snapshot, gals, h):
+cdef void *read_star_formation_history(gal_params *galParams, meraxes_output galData, 
+                                       snapshot, gals):
     if type(gals) is str:
+        # Read SFHs from files
         read_gal_params(galParams, gals)
     else:
+        # Read SFHs from meraxes outputs
         # Read redshift
-        galParams.z = meraxes.io.grab_redshift(fname, snapshot)
+        galParams.z = meraxes.io.grab_redshift(galData.fname, snapshot)
         # Read lookback time
         galParams.nAgeStep = snapshot
-        timeStep = meraxes.io.read_snaplist(fname, h)[2]*1e6 # Convert Myr to yr
+        timeStep = meraxes.io.read_snaplist(galData.fname, galData.h)[2]*1e6 # Convert Myr to yr
         ageStep = np.zeros(snapshot, dtype = 'f8')
         for iA in xrange(snapshot):
             ageStep[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
         galParams.ageStep = init_1d_double(ageStep)
+        # Store galaxy indices
         gals = np.asarray(gals, dtype = 'i4')
         galParams.nGal = len(gals)
         galParams.indices = init_1d_int(gals)
-        galParams.histories = trace_properties(snapshot, gals)
+        # Read SFHs
+        galParams.histories = galData.trace_properties(snapshot, gals)
     return galParams
-
-
-#def trace_star_formation_history(fname, snap, galIndices, h):
-#    #=====================================================================
-#    # Read galaxy properties from Meraxes outputs
-#    #=====================================================================
-#    cdef int snapMin = read_meraxes(fname, snap, h)
-#    # Trace galaxy merge trees
-#    cdef:
-#        int iG
-#        int nGal = len(galIndices)
-#        int *indices = init_1d_int(np.asarray(galIndices, dtype = 'i4'))
-#        csp *histories = \
-#        read_gal_params_by_progenitors(snap, indices, nGal)
-#    free(indices)
-#    free_meraxes(snapMin, snap)
-#    # Convert output to numpy array
-#    cdef:
-#        int iN
-#        int nBurst
-#        ssp *bursts
-#        double[:, ::1] mvBursts
-#    output = np.empty(nGal, dtype = object)
-#    for iG in xrange(nGal):
-#        nBurst = histories[iG].nBurst
-#        bursts = histories[iG].bursts
-#        mvBursts = np.zeros([nBurst, 3])
-#        for iN in xrange(nBurst):
-#            mvBursts[iN][0] = bursts[iN].index
-#            mvBursts[iN][1] = bursts[iN].metals
-#            mvBursts[iN][2] = bursts[iN].sfr
-#        output[iG] = np.asarray(mvBursts)
-#    return output
 
 
 def save_star_formation_history(fname, snapList, idxList, h,
@@ -582,10 +393,10 @@ def save_star_formation_history(fname, snapList, idxList, h,
     else:
         snapMax = max(snapList)
         nSnap = len(snapList)
-    snapMin = read_meraxes(fname, snapMax, h)
+    cdef meraxes_output galData = meraxes_output(fname, snapMax, h)
     # Read and save galaxy merge trees
     for iS in xrange(nSnap):
-        read_star_formation_history(&galParams, fname, snapList[iS], idxList[iS], h)
+        #read_star_formation_history(&galParams, galData, snapList[iS], idxList[iS])
         save_gal_params(&galParams, get_output_name(prefix, '.bin', snapList[iS], outPath))
         free_gal_params(&galParams)
 
@@ -1163,6 +974,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         int nSnap
         int sanpMin = 1
         int snapMax
+        meraxes_output galData = None
 
     if isscalar(snapList):
         snapMax = snapList
@@ -1173,8 +985,9 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         snapMax = max(snapList)
         nSnap = len(snapList)
 
+    # If SFHs are not from files, load outputs from meraxes.
     if type(gals[0]) is not str:
-        snapMin = read_meraxes(fname, snapMax, h)
+        galData = meraxes_output(fname, snapMax, h)
 
     waves = get_wavelength(sedPath)
     cdef:
@@ -1199,7 +1012,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
     for iS in xrange(nSnap):
         # Read star formation rates and metallcities form galaxy merger trees
-        read_star_formation_history(&galParams, fname, snapList[iS], gals[iS], h)
+        read_star_formation_history(&galParams, galData, snapList[iS], gals[iS])
         z = galParams.z
         nGal = galParams.nGal
         # Set redshift
@@ -1295,8 +1108,6 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         free(logWaves)
 
     free_raw_spectra(&spectra)
-    if type(gals[0]) is not str:
-        free_meraxes(snapMin, snapMax)
 
     if len(snapList) == 1:
         return mags
