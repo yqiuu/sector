@@ -6,4 +6,4 @@ magcalc.so: magcalc.pyx mag_calc_cext.c mag_calc_cext.h
 
 clean:
 	rm -rf build
-	rm magcalc.so
+	rm *.so
