@@ -681,47 +681,6 @@ cdef extern from "mag_calc_cext.h":
         double *working
 
 
-cdef void init_templates_raw(sed_params *spectra, path):
-    #=====================================================================
-    # The dictionary define by *path* should contain:
-    #
-    # "sed_Z.npy" Metallicity of SED templates in a 1-D array
-    #
-    # "sed_waves.npy" Wavelength of SED templates in a unit of angstrom in
-    # a 1-D array
-    #
-    # "sed_age.npy" Stellar age of SED templates in a unit of yr in a 1-D
-    # array
-    #
-    # "sed_flux.npy" Flux density of SED templates in a unit of erg/s/A/cm^2
-    # in a 3-D array. The flux density should be normlised by the surface
-    # area of a 10 pc sphere. The first, second and third dimensions should
-    # be metallicity, wavelength and stellar age respectively.
-    #=====================================================================
-    timing_start("# Read SED templates")
-    # Read metallicity range
-    Z = np.load(os.path.join(path, "sed_Z.npy"))
-    spectra.Z = init_1d_double(Z)
-    spectra.nZ = len(Z)
-    spectra.minZ = <short>(Z.min()*1000 - 0.5)
-    spectra.maxZ = <short>(Z.max()*1000 - 0.5)
-    print "# Metallicity range:\n#\t%.3f to %.3f"%(Z[0], Z[-1])
-    # Read wavelength
-    waves = np.load(os.path.join(path, "sed_waves.npy"))
-    print "# Wavelength range:\n#\t%.1f AA to %.1f AA"%(waves[0], waves[-1])
-    spectra.waves = init_1d_double(waves)
-    spectra.nWaves = len(waves)
-    # Read stellar age
-    age = np.load(os.path.join(path, "sed_age.npy"))
-    print "# Stellar age range:\n#\t%.2f Myr to %.2f Myr"%(age[0]*1e-6, age[-1]*1e-6)
-    spectra.age = init_1d_double(age)
-    spectra.nAge = len(age)
-    # Read flux
-    flux = np.load(os.path.join(path, "sed_flux.npy")).flatten()
-    spectra.raw = init_1d_double(flux)
-    timing_end()
-
-
 def get_wavelength(path):
     #=====================================================================
     # Return wavelengths of SED templates in a unit of angstrom
@@ -736,6 +695,8 @@ cdef void free_raw_spectra(sed_params *spectra):
 
 
 cdef extern from "mag_calc_cext.h":
+    void init_templates_raw(sed_params *spectra, char *fName)
+
     void shrink_templates_raw(sed_params *spectra, double maxAge)
 
 
@@ -1055,7 +1016,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         # Read raw SED templates
-        init_templates_raw(&spectra, sedPath)
+        init_templates_raw(&spectra, os.path.join(sedPath, "sed_library.hdf5"))
         shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
         # Compute spectra
         cOutput = composite_spectra_cext(&spectra, &galParams, dustParams,
@@ -1154,7 +1115,7 @@ cdef class calibration:
             # Generate filters
             init_filters(pSpectra, waves, nBeta, betaBands, [], 0.)
             # Read raw SED templates
-            init_templates_raw(pSpectra, sedPath)
+            init_templates_raw(pSpectra, os.path.join(sedPath, "sed_library.hdf5"))
             shrink_templates_raw(pSpectra, pGalParams.ageStep[pGalParams.nAgeStep - 1])
             #
             pGalParams += 1

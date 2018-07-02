@@ -4,6 +4,8 @@
 #include<math.h>
 #include<time.h>
 
+#include"hdf5.h"
+#include"hdf5_hl.h"
 #include"tools.h"
 
 //#define SURFACE_AREA 1.1965e40 // 4*pi*(10 pc)**2 unit cm^2
@@ -222,6 +224,56 @@ struct sed_params {
     double *ready;
     double *working;
 };
+
+
+void init_templates_raw(struct sed_params *spectra, char *fName) {
+    /* File name should be "sed_library.hdf5" and contain:
+     * "/metals" Metallicity grid (1-D dataset)
+     * "/waves" Wavelength grid [AA] (1-D dataset)
+     * "/age" Stellar age grid [yr] (1-D dataset)
+     * "/flux" Flux density [erg/s/AA/cm^2] (3-D dataset)
+     *
+     * Flux densities should be normlised by the surface area of 10 pc
+     * sphere. The first, second, and third dimensions should be metallicty,
+     * wavelength and stellar age respectively.
+     */
+    hid_t file_id;
+    hsize_t dims[3];
+
+    printf("#***********************************************************\n");
+    printf("# Read SED templates\n");
+    file_id = H5Fopen(fName, H5F_ACC_RDONLY, H5P_DEFAULT);
+    // Read dimensions
+    H5LTget_dataset_info(file_id, "/flux", dims, NULL, NULL);
+    int nZ = dims[0];
+    int nWaves = dims[1];
+    int nAge = dims[2];
+    // Read metallicity range
+    spectra->nZ = nZ;
+    spectra->Z = (double*)malloc(nZ*sizeof(double));
+    H5LTread_dataset_double(file_id, "/metals", spectra->Z);
+    spectra->minZ = (short)(spectra->Z[0]*1000 - .5);
+    spectra->maxZ = (short)(spectra->Z[nZ - 1]*1000 - .5);
+    printf("# Metallicity range:\n#\t%.3f to %.3f\n", 
+           spectra->Z[0], spectra->Z[nZ - 1]);
+    // Read wavelength
+    spectra->nWaves = nWaves;
+    spectra->waves = (double*)malloc(nWaves*sizeof(double));
+    H5LTread_dataset_double(file_id, "/waves", spectra->waves);
+    printf("# Wavelength range:\n#\t%.1f AA to %.1f AA\n", 
+           spectra->waves[0], spectra->waves[nWaves - 1]);
+    // Read stellar age
+    spectra->nAge = nAge;
+    spectra->age = (double*)malloc(nAge*sizeof(double));
+    H5LTread_dataset_double(file_id, "/age", spectra->age);
+    printf("# Stellar age range:\n#\t%.2f Myr to %.2f Myr\n", 
+           spectra->age[0]*1e-6, spectra->age[nAge - 1]*1e-6);
+    // Read flux
+    spectra->raw = (double*)malloc(nZ*nWaves*nAge*sizeof(double));
+    H5LTread_dataset_double(file_id, "/flux", spectra->raw);
+    H5Fclose(file_id);
+    printf("#***********************************************************\n\n");
+}
 
 
 void shrink_templates_raw(struct sed_params *spectra, double maxAge) {

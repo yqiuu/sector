@@ -28,7 +28,7 @@ struct sed_params {
     double *working;
 };
 
-
+void init_templates_raw(struct sed_params *spectra, char *fName);
 void shrink_templates_raw(struct sed_params *spectra, double maxAge);
 
 

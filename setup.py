@@ -6,8 +6,8 @@ from Cython.Distutils import build_ext
 
 exts = [Extension("magcalc", 
                   sources = ["tools.c", "mag_calc_cext.c", "magcalc.pyx"],
-                  extra_compile_args=['-fopenmp'], 
-                  extra_link_args=['-fopenmp'])]
+                  extra_compile_args=['-fopenmp', '-lhdf5', '-lhdf5_hl'], 
+                  extra_link_args=['-fopenmp', '-lhdf5', '-lhdf5_hl'])]
 
 for e in exts:
     e.cython_directives = {"embedsignature":True}
