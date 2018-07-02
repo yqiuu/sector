@@ -5,7 +5,7 @@ from Cython.Distutils import build_ext
 #exts = cythonize([Extension("mag_calc", sources = ["mag_calc_cext.c", "mag_calc.pyx"])])
 
 exts = [Extension("magcalc", 
-                  sources = ["mag_calc_cext.c", "magcalc.pyx"],
+                  sources = ["tools.c", "mag_calc_cext.c", "magcalc.pyx"],
                   extra_compile_args=['-fopenmp'], 
                   extra_link_args=['-fopenmp'])]
 
