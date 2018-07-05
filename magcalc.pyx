@@ -73,7 +73,7 @@ def timing_end():
 # Functions to load galaxy properties                                           #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "mag_calc_cext.h":
+cdef extern from "sector_cext.h":
     struct ssp:
         short index
         float metals
@@ -617,7 +617,7 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
 # Functions about ISM absorptionb                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "mag_calc_cext.h":
+cdef extern from "sector_cext.h":
     struct dust_params:
         double tauUV_ISM
         double nISM
@@ -650,7 +650,7 @@ cdef dust_params *init_dust_parameters(dust):
 # Functions to read SED templates                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "mag_calc_cext.h":
+cdef extern from "sector_cext.h":
     struct sed_params:
         # Raw templates
         int minZ
@@ -695,7 +695,7 @@ cdef void free_raw_spectra(sed_params *spectra):
     free(spectra.raw)
 
 
-cdef extern from "mag_calc_cext.h":
+cdef extern from "sector_cext.h":
     void init_templates_raw(sed_params *spectra, char *fName)
 
     void shrink_templates_raw(sed_params *spectra, double maxAge)
@@ -839,7 +839,7 @@ def get_output_name(prefix, postfix, snap, path):
     return os.path.join(path, fname)
 
 
-cdef extern from "mag_calc_cext.h" nogil:
+cdef extern from "sector_cext.h" nogil:
     double *composite_spectra_cext(sed_params *spectra,
                                    gal_params *galParams, dust_params *dustParams,
                                    short outType, short nThread)
