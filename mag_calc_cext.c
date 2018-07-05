@@ -425,6 +425,16 @@ struct dust_params {
 };
 
 
+inline int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
+    if (tBC >= ageStep[nAgeStep - 1])
+        return nAgeStep;
+    else if (tBC < ageStep[0])
+        return 0;
+    else
+        return bisection_search(tBC, ageStep, nAgeStep) + 1;
+}
+
+
 inline void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams,
                             int *ageFlag) {
     /* tBC: life time of the birth clound
@@ -449,8 +459,6 @@ inline void dust_absorption(struct sed_params *spectra, struct dust_params *dust
     double *ageStep = spectra->ageStep;
     double *data = spectra->ready;
 
-    int iAgeBC;
-    double t0, t1;
     double tauUV_ISM = dustParams->tauUV_ISM;
     double nISM = dustParams->nISM;
     double tauUV_BC = dustParams->tauUV_BC;
@@ -459,22 +467,21 @@ inline void dust_absorption(struct sed_params *spectra, struct dust_params *dust
     double *transISM = malloc(nWaves*sizeof(double));
     double *transBC = malloc(nWaves*sizeof(double));
     double ratio;
+    int iAgeBC = birth_cloud_interval(tBC, ageStep, nAgeStep);
+    double t0, t1;
 
     // Find the time inverval containning the birth cloud
-    if (tBC >= ageStep[nAgeStep - 1]) {
-        iAgeBC = nAgeStep;
+    if (iAgeBC == nAgeStep) {
         t0 = 0.;
         t1 = 0.;
     }
-    else if (tBC < ageStep[0]) {
-        iAgeBC = 0;
+    else if (iAgeBC == 0) {
         t0 = age[0];
         t1 = ageStep[0];
         if (tBC < t0)
             tBC = t0;
     }
     else {
-        iAgeBC = bisection_search(tBC, ageStep, nAgeStep) + 1;
         t0 = ageStep[iAgeBC - 1];
         t1 = ageStep[iAgeBC];
     }
