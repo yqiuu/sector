@@ -797,8 +797,8 @@ cdef void init_filters(sed_params *spectra, waves, int nBeta, restBands, obsBand
         if min(newWaves) < min(waves)*(1. + z) or max(newWaves) > max(waves)*(1. + z):
             raise ValueError("Filter wavelength ranges are beyond SED templates")
         newFilters /= np.trapz(newFilters/newWaves, newWaves)
-        newFilters *= 3.34e4*newWaves
-        #newWaves /= (1. + z)
+        newFilters *= 3.34e4*newWaves*Lyman_absorption_Inoue(newWaves, z)
+        newWaves /= (1. + z)
         nFilterWaves[iF] = len(newWaves)
         filterWaves[iF] = newWaves
         filters[iF] = newFilters

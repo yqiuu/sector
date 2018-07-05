@@ -288,9 +288,7 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
     int nAge = spectra->nAge;
     double *age = spectra->age;
     double *raw = spectra->raw;
-    double z = spectra->z;
     int nFlux = spectra->nFlux;
-    int nRest = nFlux - spectra->nObs;
     int nFW;
     int *nFilterWaves = spectra->nFilterWaves;
     double *filterWaves = spectra->filterWaves;
@@ -317,8 +315,6 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
         outFlag = 1;
         for(iF = 0; iF < nFlux; ++iF) {
             nFW = nFilterWaves[iF];
-            if (iF == nRest)
-                w *= 1. + z;
             if (w > pFilterWaves[0] && w < pFilterWaves[nFW - 1]) {
                 outFlag = 0;
                 if (!inFlag) {
@@ -564,7 +560,6 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
     double z = spectra->z;
     int nFlux = spectra->nFlux;
     int nObs = spectra->nObs;
-    int nRest = nFlux - nObs;
     int nFW;
     int *nFilterWaves = spectra->nFilterWaves;
     double *filterWaves = spectra->filterWaves;
@@ -634,10 +629,6 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
         for(iF = 0; iF < nFlux; ++iF) {
             nFW = nFilterWaves[iF];
             filterData = (double*)malloc(nFW*sizeof(double));
-            if (iF == nRest) {
-                pWaves = obsWaves;
-                pReadyData = obsData;
-            }
             n = nAgeStep*nZ;
             for(i = 0; i < n; ++i) {
                 iA = i/nZ;
