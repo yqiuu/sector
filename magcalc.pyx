@@ -10,7 +10,7 @@ from libc.stdio cimport *
 from libc.string cimport memcpy
 from libc.math cimport exp, log
 
-import numpy as np
+import numpy as np, h5py
 from numpy import isnan, isscalar, vectorize
 from pandas import DataFrame
 
@@ -685,7 +685,7 @@ def get_wavelength(path):
     #=====================================================================
     # Return wavelengths of SED templates in a unit of angstrom
     #=====================================================================
-    return np.load(os.path.join(path, "sed_waves.npy"))
+    return np.array(h5py.File(os.path.join(path, "sed_library.hdf5"), "r").get("waves"))
 
 
 cdef void free_raw_spectra(sed_params *spectra):
