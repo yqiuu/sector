@@ -486,6 +486,32 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
  * Primary Functions                                                           *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux, 
+                  double *logWaves, int nFit, int nR) {
+    #ifdef TIMING
+        profiler_start("Slope fit", FIT);
+    #endif
+    int iF, iG;
+    struct linResult result;
+    double *logf = malloc(nFit*sizeof(double));
+
+    for(iG = 0; iG < nGal; ++iG) {
+        for(iF = 0; iF < nFit; ++iF)
+            logf[iF] = log(pFit[iF]);
+        pFit += nFlux;
+        result = linregress(logWaves, logf, nFit);
+        *pTarget++ = (double)result.slope;
+        if (nR > 1)
+            *pTarget++ = (double)result.intercept;
+        if (nR > 2)
+            *pTarget++ = (double)result.R;
+    }
+    #ifdef TIMING
+        profiler_end(FIT);
+    #endif
+}
+
+
 double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams, struct dust_params *dustParams,
                                short outType, short nThread) {
@@ -494,7 +520,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
         timing_start("Compute magnitudes");
     #endif
 
-    int iF, iG, iFG;
+    int iG, iFG;
 
     int minZ = spectra->minZ;
     int maxZ = spectra->maxZ;
@@ -607,39 +633,17 @@ double *composite_spectra_cext(struct sed_params *spectra,
     }
 
     // Fit UV slopes
-    #ifdef TIMING
-        profiler_start("Slope fit", FIT);
-    #endif
     int nR = 3;
-    struct linResult result;
-    int nFit = nFlux - 1;
-    double *logf = malloc(nFit*sizeof(double));
-    double *logWaves = spectra->logWaves;
-
     output = (double*)realloc(output, (nFlux + nR)*nGal*sizeof(double));
-    pOutput = output + nFlux*nGal;
-    double *pFit = output;
+    fit_UV_slope(output + nFlux*nGal, output, nGal, nFlux, spectra->logWaves, nFlux - 1, nR);
 
-    for(iG = 0; iG < nGal; ++iG) {
-        for(iF = 0; iF < nFit; ++iF)
-            logf[iF] = log(pFit[iF]);
-        pFit += nFlux;
-        //printf("waves = %.1f, logf = %.1f\n", logWaves[1], logf[1]);
-        result = linregress(logWaves, logf, nFit);
-        pOutput[0] = (double)result.slope;
-        pOutput[1] = (double)result.intercept;
-        pOutput[2] = (double)result.R;
-        pOutput += nR;
-        //printf("Slope = %.1f\n", result.slope);
-    }
     // Convert to AB magnitude
-    pOutput = output + nFit;
+    pOutput = output + nFlux - 1;
     for(iG = 0; iG < nGal; ++iG) {
         *pOutput = M_AB(*pOutput);
         pOutput += nFlux;
     }
     #ifdef TIMING
-        profiler_end(FIT);
         timing_end();
         profiler_summary();
     #endif
