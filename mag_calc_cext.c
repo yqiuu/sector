@@ -534,117 +534,87 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
     int nZ = spectra->nZ;
     int nWaves = spectra->nWaves;
     int nAgeStep = spectra->nAgeStep;
-    size_t readySize = nZ*nAgeStep*nWaves*sizeof(double);
+    int nFlux = spectra->nFlux;
     double *readyData = spectra->ready;
 
     if (dustParams != NULL) {
-        memcpy(readyData, spectra->integrated, readySize);
+        memcpy(readyData, spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));
         ageFlag = age_flag(pHistories, nAgeStep);
         ZFlag = Z_flag(pHistories, nMaxZ);
         dust_absorption(spectra, dustParams + iG, ageFlag);
     }
     else if (iG == -1) {
-        memcpy(readyData, spectra->integrated, readySize);
+        memcpy(readyData, spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));
         ageFlag = calloc(nAgeStep, sizeof(int));
         ZFlag = calloc(nMaxZ, sizeof(int));
     }
     else
         return;
 
-    int iA, iW, iF, iFW, iZ, i, n;
-
-    double *Z = spectra->Z;
-    double *waves = spectra->waves;
-    double *pWaves;
-
-    double z = spectra->z;
-    int nFlux = spectra->nFlux;
-    int nObs = spectra->nObs;
-    int nFW;
-    int *nFilterWaves = spectra->nFilterWaves;
-    double *filterWaves = spectra->filterWaves;
-    double *filters = spectra->filters;
-    double *pFilterWaves = filterWaves;
-    double *pFilters = filters;
-    double *filterData;
-    double I;
-    double *LyAbsorption = spectra->LyAbsorption;
-
-    double *workingData = spectra->working;
-    double *obsWaves = NULL;
-    double *obsData = NULL;
-    if (nObs > 0) {
-        obsWaves = (double*)malloc(nWaves*sizeof(double));
-        obsData = (double*)malloc(readySize);
-    }
+    int iA, iF, iW, iZ, i, n;
     double *pData;
-    double *pObsData;
-    double *pReadyData;
     // Spectra to be interploated along metallicities
-    // The first dimension refers to filters/wavelengths and ages
-    // Thw last dimension refers to metallicites
-    double *refSpectra = malloc(nFlux*nAgeStep*nZ*sizeof(double));
-    double interpZ;
-    double *pRefData;
+    // Dimension: filter/wavelength × age × metallicity
+    double *refSpectra = NULL;
 
-    if (nObs > 0) {
-        // Transform everything to observer frame
-        // Note the fluxes in this case is a function of wavelength
-        // Therefore the fluxes has a factor of 1/(1 + z)
-        for(iW = 0; iW < nWaves; ++iW)
-            obsWaves[iW] = waves[iW]*(1. + z);
+    if (spectra->filters == NULL) {
+        double z = spectra->z;
+        double *LyAbsorption = spectra->LyAbsorption;
+
         n = nZ*nAgeStep;
+        refSpectra = malloc(nWaves*n*sizeof(double));
+        if (spectra->nObs > 0) {
+            // Transform everything to observer frame
+            // Note the fluxes in this case is a function of wavelength
+            // Therefore the fluxes has a factor of 1/(1 + z)
+            for(i = 0; i < n; ++i) {
+                pData = readyData + i*nWaves;
+                for(iW = 0; iW < nWaves; ++iW)
+                   pData[iW] /= 1. + z;
+            }
+            // Add IGM absorption
+            if (LyAbsorption != NULL)
+                for(i = 0; i < n; ++i) {
+                    pData = readyData + i*nWaves;
+                    for(iW = 0; iW < nWaves; ++iW)
+                        pData[iW] *= LyAbsorption[iW];
+                }
+        }
+        // Tranpose the templates such that the last dimension is the metallicity
         for(i = 0; i < n; ++i) {
             pData = readyData + i*nWaves;
-            pObsData = obsData + i*nWaves;
-            for(iW = 0; iW < nWaves; ++iW)
-                pObsData[iW] = pData[iW]/(1. + z);
-        }
-        if (LyAbsorption != NULL)
-            // Add IGM absorption
-            for(i = 0; i < n; ++i) {
-                pObsData = obsData + i*nWaves;
-                for(iW = 0; iW < nWaves; ++iW)
-                    pObsData[iW] *= LyAbsorption[iW];
-                }
-    }
-    if (filters == NULL) {
-        // Tranpose the templates such that the last dimension is the metallicity
-        if (nObs > 0)
-            pReadyData = obsData;
-        else
-            pReadyData = readyData;
-        n = nZ*nAgeStep;
-        for(i = 0; i < n; ++i) {
-            pData = pReadyData + i*nWaves;
             for(iW = 0; iW < nWaves; ++iW)
                 refSpectra[(iW*nAgeStep + i%nAgeStep)*nZ + i/nAgeStep] = pData[iW];
         }
+
     }
     else {
         // Intgrate SED templates over filters
-        pWaves = waves;
-        pReadyData = readyData;
-        pRefData = refSpectra;
+        int iFW, nFW;
+        int *nFilterWaves = spectra->nFilterWaves;
+        double *pFilterWaves = spectra->filterWaves;
+        double *pFilters = spectra->filters;
+        double *filterData = NULL;
+        double *waves = spectra->waves;
+        double I;
+
+        n = nZ*nAgeStep;
+        refSpectra = malloc(nFlux*n*sizeof(double));
         for(iF = 0; iF < nFlux; ++iF) {
             nFW = nFilterWaves[iF];
             filterData = (double*)malloc(nFW*sizeof(double));
-            n = nAgeStep*nZ;
             for(i = 0; i < n; ++i) {
                 iA = i/nZ;
                 if (ageFlag[iA])
                     continue;
-                pData = pReadyData + (i%nZ*nAgeStep + iA)*nWaves;
+                pData = readyData + (i%nZ*nAgeStep + iA)*nWaves;
                 for(iFW= 0; iFW < nFW; ++iFW)
-                    filterData[iFW] = interp(pFilterWaves[iFW],
-                                             pWaves, pData, nWaves);
-                for(iFW = 0; iFW < nFW; ++iFW)
-                    filterData[iFW] *= pFilters[iFW];
+                    filterData[iFW] = interp(pFilterWaves[iFW], waves, pData, nWaves)*pFilters[iFW];
                 I = 0.;
                 for(iFW = 1; iFW < nFW; ++iFW)
                     I += (pFilterWaves[iFW] - pFilterWaves[iFW - 1]) \
                          *(filterData[iFW] + filterData[iFW - 1]);
-                pRefData[iF*n + i] = I/2.;
+                refSpectra[iF*n + i] = I/2.;
             }
             free(filterData);
             pFilterWaves += nFW;
@@ -652,6 +622,10 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
         }
     }
     // Interploate SED templates along metallicities
+    double *Z = spectra->Z;
+    double *workingData = spectra->working;
+    double interpZ;
+
     n = nMaxZ*nAgeStep;
     for(i = 0; i < n; ++i) {
         iZ = i/nAgeStep;
@@ -668,10 +642,7 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
 
     free(ageFlag);
     free(ZFlag);
-    free(obsWaves);
-    free(obsData);
     free(refSpectra);
-
 }
 
 
