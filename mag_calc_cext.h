@@ -26,6 +26,8 @@ struct sed_params {
     double *integrated;
     double *ready;
     double *working;
+    double *inBC;
+    double *outBC;
 };
 
 void init_templates_raw(struct sed_params *spectra, char *fName);

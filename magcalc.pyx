@@ -679,7 +679,8 @@ cdef extern from "mag_calc_cext.h":
         double *integrated
         double *ready
         double *working
-
+        double *inBC
+        double *outBC
 
 def get_wavelength(path):
     #=====================================================================

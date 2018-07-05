@@ -223,6 +223,8 @@ struct sed_params {
     double *integrated;
     double *ready;
     double *working;
+    double *inBC;
+    double *outBC;
 };
 
 
@@ -435,6 +437,51 @@ inline int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
 }
 
 
+void init_templates_special(struct sed_params *spectra, double tBC ) {
+    // Special templates are for birth cloud 
+    // Dimension: metallicity × wavelength
+    int iZW;
+    double *pData;
+    int nZ = spectra->nZ;
+    int nWaves = spectra->nWaves;
+    int nAge = spectra->nAge;
+    int nZW = nZ*nWaves;
+    double *age = spectra->age;
+    double *rawData = spectra->raw;
+
+    // Find the time inverval containning the birth cloud
+    int nAgeStep = spectra->nAgeStep;
+    double *ageStep = spectra->ageStep;
+    int iAgeBC = birth_cloud_interval(tBC, ageStep, nAgeStep);
+    double t0, t1;
+
+    if (iAgeBC == nAgeStep) {
+        spectra->inBC = (double*)calloc(nZ*nWaves, sizeof(double));
+        spectra->outBC = (double*)calloc(nZ*nWaves, sizeof(double));
+        return;
+    }
+    else if (iAgeBC == 0) {
+        t0 = age[0];
+        t1 = ageStep[0];
+        if (tBC < t0)
+            tBC = t0;
+    }
+    else {
+        t0 = ageStep[iAgeBC - 1];
+        t1 = ageStep[iAgeBC];
+    }
+
+    spectra->inBC = (double*)malloc(nZ*nWaves*sizeof(double));
+    pData = spectra->inBC;
+    for(iZW = 0; iZW < nZW; ++iZW) 
+        *pData++ = trapz_table(rawData + iZW*nAge, age, nAge, t0, tBC);
+    spectra->outBC = (double*)malloc(nZ*nWaves*sizeof(double));
+    pData = spectra->outBC;
+    for(iZW = 0; iZW < nZW; ++iZW) 
+        *pData++ = trapz_table(rawData + iZW*nAge, age, nAge, tBC, t1);
+}
+
+
 inline void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams,
                             int *ageFlag) {
     /* tBC: life time of the birth clound
@@ -448,16 +495,13 @@ inline void dust_absorption(struct sed_params *spectra, struct dust_params *dust
     int iA, iW, i, n;
     double *pData;
 
-    int nAge = spectra->nAge;
-    double *age = spectra->age;
-    double *rawData = spectra->raw;
+    int nZ = spectra->nZ;
     int nWaves = spectra->nWaves;
     double *waves = spectra->waves;
-    int nZ = spectra->nZ;
-
     int nAgeStep = spectra->nAgeStep;
-    double *ageStep = spectra->ageStep;
     double *data = spectra->ready;
+    double *inBC = spectra->inBC;
+    double *outBC = spectra->outBC;
 
     double tauUV_ISM = dustParams->tauUV_ISM;
     double nISM = dustParams->nISM;
@@ -467,24 +511,7 @@ inline void dust_absorption(struct sed_params *spectra, struct dust_params *dust
     double *transISM = malloc(nWaves*sizeof(double));
     double *transBC = malloc(nWaves*sizeof(double));
     double ratio;
-    int iAgeBC = birth_cloud_interval(tBC, ageStep, nAgeStep);
-    double t0, t1;
-
-    // Find the time inverval containning the birth cloud
-    if (iAgeBC == nAgeStep) {
-        t0 = 0.;
-        t1 = 0.;
-    }
-    else if (iAgeBC == 0) {
-        t0 = age[0];
-        t1 = ageStep[0];
-        if (tBC < t0)
-            tBC = t0;
-    }
-    else {
-        t0 = ageStep[iAgeBC - 1];
-        t1 = ageStep[iAgeBC];
-    }
+    int iAgeBC = birth_cloud_interval(tBC, spectra->ageStep, nAgeStep);
 
     // Compute the optical depth of both the birth cloud and the ISM
     for(iW = 0; iW < nWaves; ++iW) {
@@ -495,13 +522,13 @@ inline void dust_absorption(struct sed_params *spectra, struct dust_params *dust
 
     // t_s < tBC < t_s + dt
     if (iAgeBC != nAgeStep && !ageFlag[iAgeBC]) {
+        // loop info: n = nZ*nWaves
+        //            iZ = i/nWaves
+        //            iW = i%nWaves
         n = nZ*nWaves;
         for(i = 0; i < n; ++i) {
             iW = i%nWaves;
-            pData = data + (i/nWaves*nAgeStep + iAgeBC)*nWaves;
-            pData[iW] = transBC[iW] \
-                *trapz_table(rawData + i*nAge, age, nAge, t0, tBC) \
-                + trapz_table(rawData + i*nAge, age, nAge, tBC, t1);
+            data[(i/nWaves*nAgeStep + iAgeBC)*nWaves + iW] = transBC[iW]*inBC[i] + outBC[i];
         }
     }
 
@@ -686,6 +713,12 @@ double *composite_spectra_cext(struct sed_params *spectra,
     init_templates_integrated(spectra);
     spectra->ready = NULL;
     spectra->working = NULL;
+    if (dustParams == NULL) {
+        spectra->inBC = NULL;
+        spectra->outBC = NULL;
+    }
+    else
+        init_templates_special(spectra, dustParams->tBC);
     // Initialise outputs
     double *output = malloc(nGal*nFlux*sizeof(double));
     double *pOutput = output;
@@ -746,6 +779,8 @@ double *composite_spectra_cext(struct sed_params *spectra,
         free(workingData);
     }
     free(spectra->integrated);
+    free(spectra->inBC);
+    free(spectra->outBC);
     #ifdef TIMING
         profiler_end(SUM);
     #endif
