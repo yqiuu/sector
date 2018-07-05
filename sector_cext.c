@@ -1,12 +1,7 @@
-#include<stdio.h>
-#include<stdlib.h>
-#include<string.h>
-#include<math.h>
-#include<time.h>
-
+#define _SECTOR_
+#include"sector_cext.h"
 #include"hdf5.h"
 #include"hdf5_hl.h"
-#include"tools.h"
 
 //#define SURFACE_AREA 1.1965e40 // 4*pi*(10 pc)**2 unit cm^2
 //#define JANSKY(x) (3.34e4*(x)*(x))
@@ -108,27 +103,6 @@
  * Struct to store galaxy properites                                           *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-struct ssp {
-    short index;
-    float metals;
-    float sfr;
-};
-
-struct csp {
-    struct ssp *bursts;
-    int nBurst;
-};
-
-struct gal_params {
-    double z;
-    int nAgeStep;
-    double *ageStep;
-    int nGal;
-    int *indices;
-    struct csp *histories;
-};
-
-
 void trim_gal_params(struct gal_params *galParams, int minZ, int maxZ) {
     /* Set the metallicity of each SSP to the given range */
     int iB, iG;
@@ -194,40 +168,6 @@ int *Z_flag(struct csp *histories, int nMaxZ) {
  * Functions to process SEDs                                                   *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-// Struct for SED templates
-struct sed_params {
-    // Raw templates
-    int minZ;
-    int maxZ;
-    int nZ;
-    double *Z;
-    int nWaves;
-    double *waves;
-    int nAge;
-    double *age;
-    double *raw;
-    // Redshift
-    double z;
-    // Filters
-    int nFlux;
-    int nObs;
-    int *nFilterWaves;
-    double *filterWaves;
-    double *filters;
-    double *logWaves;
-    // IGM absoprtion
-    double *LyAbsorption;
-    // Working templates
-    int nAgeStep;
-    double *ageStep;
-    double *integrated;
-    double *ready;
-    double *working;
-    double *inBC;
-    double *outBC;
-};
-
-
 void init_templates_raw(struct sed_params *spectra, char *fName) {
     /* File name should be "sed_library.hdf5" and contain:
      * "/metals" Metallicity grid (1-D dataset)
@@ -416,15 +356,6 @@ void init_templates_integrated(struct sed_params *spectra) {
         profiler_end(INTEGRATION);
     #endif
 }
-
-
-struct dust_params {
-    double tauUV_ISM;
-    double nISM;
-    double tauUV_BC;
-    double nBC;
-    double tBC;
-};
 
 
 inline int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
