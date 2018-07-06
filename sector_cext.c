@@ -194,8 +194,8 @@ void init_templates_raw(struct sed_params *spectra, char *fName) {
     spectra->nZ = nZ;
     spectra->Z = (double*)malloc(nZ*sizeof(double));
     H5LTread_dataset_double(file_id, "/metals", spectra->Z);
-    spectra->minZ = (short)(spectra->Z[0]*1000 - .5);
-    spectra->maxZ = (short)(spectra->Z[nZ - 1]*1000 - .5);
+    spectra->minZ = (int)(spectra->Z[0]*1000 - .5);
+    spectra->maxZ = (int)(spectra->Z[nZ - 1]*1000 - .5);
     spectra->nMaxZ = spectra->maxZ - spectra->minZ + 1;
     printf("# Metallicity range:\n#\t%.3f to %.3f\n", spectra->Z[0], spectra->Z[nZ - 1]);
     // Read wavelength
