@@ -512,71 +512,56 @@ void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
 }
 
 
-double *composite_spectra_cext(struct sed_params *spectra,
-                               struct gal_params *galParams, struct dust_params *dustParams,
-                               short outType, short nThread) {
-    #ifdef TIMING
-        init_profiler();
-        timing_start("Compute magnitudes");
-    #endif
+void compute_spectra_full(double *target, struct sed_params *spectra,
+                          struct gal_params *galParams, struct dust_params *dustParams,
+                          short nThread) {
+    // Trim the metallicity of each SSP such that it is within the range of
+    // input SED templates
+    trim_gal_params(galParams, spectra->minZ, spectra->maxZ);
 
-    int iG, iFG;
-
-    int minZ = spectra->minZ;
-    int maxZ = spectra->maxZ;
-    int nMaxZ = maxZ - minZ + 1;
-    // Initialise galaxies parameters
-    trim_gal_params(galParams, minZ, maxZ);
-    int nAgeStep= galParams->nAgeStep;
-    double *ageStep = galParams->ageStep;
-    int nGal = galParams->nGal;
-    struct csp *histories = galParams->histories;
-    // Generate templates
-    int nFlux = spectra->nFlux;
-    size_t readySize = spectra->nZ*nAgeStep*spectra->nWaves*sizeof(double);
-    size_t workingSize = nMaxZ*nAgeStep*nFlux*sizeof(double);
-    spectra->nAgeStep = nAgeStep;
-    spectra->ageStep = ageStep;
-    init_templates_integrated(spectra);
+    // Initialise SED templates
     spectra->ready = NULL;
     spectra->working = NULL;
+
+    // Integrate SED templates over given time steps
+    spectra->nAgeStep = galParams->nAgeStep;
+    spectra->ageStep = galParams->ageStep;
+    init_templates_integrated(spectra);
+
+    // Initialise templates for birth cloud if necessary
     if (dustParams == NULL) {
         spectra->inBC = NULL;
         spectra->outBC = NULL;
     }
     else
         init_templates_special(spectra, dustParams->tBC);
-    // Initialise outputs
-    double *output = malloc(nGal*nFlux*sizeof(double));
-    double *pOutput = output;
-    for(iFG = 0; iFG < nGal*nFlux; ++iFG)
-        *pOutput++ = TOL;
 
     #ifdef TIMING
         profiler_start("Summation over progenitors", SUM);
     #endif
     #pragma omp parallel \
     default(none) \
-    firstprivate(spectra, dustParams, \
-                 nAgeStep, ageStep, nGal, histories, \
-                 nFlux, readySize, workingSize, \
-                 output) \
+    firstprivate(spectra, galParams, dustParams, target) \
     num_threads(nThread)
     {
         int iF, iG;
         double *pData;
-        double *pOutput;
+        double *pTarget;
 
         int iP, nProg;
+        int nAgeStep = galParams->nAgeStep;
+        int nGal = galParams->nGal;
+        struct csp *histories = galParams->histories;
         struct csp *pHistories;
         struct ssp *pBursts;
         double sfr;
         int metals;
 
+        int nFlux = spectra->nFlux;
         struct sed_params omp_spectra;
         memcpy(&omp_spectra, spectra, sizeof(struct sed_params));
-        double *readyData = malloc(readySize);
-        double *workingData = malloc(workingSize);
+        double *readyData = malloc(spectra->nZ*nAgeStep*spectra->nWaves*sizeof(double));
+        double *workingData = malloc((spectra->maxZ - spectra->minZ + 1)*nAgeStep*nFlux*sizeof(double));
         omp_spectra.ready = readyData;
         omp_spectra.working = workingData;
         if (dustParams == NULL)
@@ -589,14 +574,14 @@ double *composite_spectra_cext(struct sed_params *spectra,
             init_templates_working(&omp_spectra, pHistories, dustParams, iG);
             // Sum contributions from all progenitors
             nProg = pHistories->nBurst;
-            pOutput = output + iG*nFlux;
+            pTarget = target + iG*nFlux;
             for(iP = 0; iP < nProg; ++iP) {
                 pBursts = pHistories->bursts + iP;
                 sfr = pBursts->sfr;
                 metals = (int)(pBursts->metals*1000 - .5);
                 pData = workingData + (metals*nAgeStep + pBursts->index)*nFlux;
                 for(iF = 0 ; iF < nFlux; ++iF)
-                    pOutput[iF] += sfr*pData[iF];
+                    pTarget[iF] += sfr*pData[iF];
             }
             #ifdef TIMING
                 report(iG, nGal);
@@ -611,10 +596,32 @@ double *composite_spectra_cext(struct sed_params *spectra,
     #ifdef TIMING
         profiler_end(SUM);
     #endif
+}
+
+
+double *composite_spectra_cext(struct sed_params *spectra,
+                               struct gal_params *galParams, struct dust_params *dustParams,
+                               short outType, short nThread) {
+    #ifdef TIMING
+        init_profiler();
+        timing_start("Compute magnitudes");
+    #endif
+
+    // Initialise outputs
+    int iGF;
+    int nGal = galParams->nGal;
+    int nFlux = spectra->nFlux;
+    int nGF = nGal*nFlux;
+    double *output = malloc(nGF*sizeof(double));
+    double *pOutput = output;
+    for(iGF = 0; iGF < nGF; ++iGF)
+        *pOutput++ = TOL;
+    compute_spectra_full(output, spectra, galParams, dustParams, nThread);
 
     if (outType == 0) {
+        // Convert to AB magnitude
         pOutput = output;
-        for(iFG = 0; iFG < nFlux*nGal; ++iFG) {
+        for(iGF = 0; iGF < nGF; ++iGF) {
             *pOutput = M_AB(*pOutput);
             ++pOutput;
         }
@@ -633,6 +640,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     }
 
     // Fit UV slopes
+    int iG;
     int nR = 3;
     output = (double*)realloc(output, (nFlux + nR)*nGal*sizeof(double));
     fit_UV_slope(output + nFlux*nGal, output, nGal, nFlux, spectra->logWaves, nFlux - 1, nR);
