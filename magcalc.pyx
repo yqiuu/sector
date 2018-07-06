@@ -822,7 +822,8 @@ cdef void free_filters(sed_params *spectra):
     free(spectra.nFilterWaves)
     free(spectra.filterWaves)
     free(spectra.filters)
-
+    free(spectra.centreWaves)
+    free(spectra.logWaves)
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
@@ -966,7 +967,6 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         int nRest = 0
         int nObs = 0
         int nFlux = 0
-        double *logWaves= NULL
         int cOutType = 0
 
         int nR = 3
@@ -1072,7 +1072,6 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         free(spectra.LyAbsorption)
         free_filters(&spectra)
         free(cOutput)
-        free(logWaves)
 
     free_raw_spectra(&spectra)
 
