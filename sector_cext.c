@@ -375,7 +375,7 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
         memcpy(readyData, spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));
         ageFlag = age_flag(pHistories, nAgeStep);
         ZFlag = Z_flag(pHistories, nMaxZ);
-        dust_absorption_full(spectra, dustParams + iG);
+        dust_absorption(spectra, dustParams + iG);
     }
     else if (iG == -1) {
         memcpy(readyData, spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));
@@ -511,7 +511,7 @@ void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
 }
 
 
-void compute_spectra_full(double *target, struct sed_params *spectra,
+void compute_spectra(double *target, struct sed_params *spectra,
                           struct gal_params *galParams, struct dust_params *dustParams,
                           short nThread) {
     // Initialise SED templates
@@ -615,7 +615,7 @@ double *composite_spectra_cext(struct sed_params *spectra,
     double *pOutput = output;
     for(iGF = 0; iGF < nGF; ++iGF)
         *pOutput++ = TOL;
-    compute_spectra_full(output, spectra, galParams, dustParams, nThread);
+    compute_spectra(output, spectra, galParams, dustParams, nThread);
 
     if (outType == 0) {
         // Convert to AB magnitude
