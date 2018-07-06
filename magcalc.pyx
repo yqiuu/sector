@@ -655,6 +655,7 @@ cdef extern from "sector_cext.h":
         # Raw templates
         int minZ
         int maxZ
+        int nMaxZ
         int nZ
         double *Z
         int nWaves

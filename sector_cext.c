@@ -196,8 +196,8 @@ void init_templates_raw(struct sed_params *spectra, char *fName) {
     H5LTread_dataset_double(file_id, "/metals", spectra->Z);
     spectra->minZ = (short)(spectra->Z[0]*1000 - .5);
     spectra->maxZ = (short)(spectra->Z[nZ - 1]*1000 - .5);
-    printf("# Metallicity range:\n#\t%.3f to %.3f\n", 
-           spectra->Z[0], spectra->Z[nZ - 1]);
+    spectra->nMaxZ = spectra->maxZ - spectra->minZ + 1;
+    printf("# Metallicity range:\n#\t%.3f to %.3f\n", spectra->Z[0], spectra->Z[nZ - 1]);
     // Read wavelength
     spectra->nWaves = nWaves;
     spectra->waves = (double*)malloc(nWaves*sizeof(double));
@@ -364,8 +364,7 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
     int *ZFlag = NULL;
 
     int minZ = spectra->minZ;
-    int maxZ = spectra->maxZ;
-    int nMaxZ = maxZ - minZ + 1;
+    int nMaxZ = spectra->nMaxZ;
     int nZ = spectra->nZ;
     int nWaves = spectra->nWaves;
     int nAgeStep = spectra->nAgeStep;
@@ -561,7 +560,7 @@ void compute_spectra_full(double *target, struct sed_params *spectra,
         struct sed_params omp_spectra;
         memcpy(&omp_spectra, spectra, sizeof(struct sed_params));
         double *readyData = malloc(spectra->nZ*nAgeStep*spectra->nWaves*sizeof(double));
-        double *workingData = malloc((spectra->maxZ - spectra->minZ + 1)*nAgeStep*nFlux*sizeof(double));
+        double *workingData = malloc(spectra->nMaxZ*nAgeStep*nFlux*sizeof(double));
         omp_spectra.ready = readyData;
         omp_spectra.working = workingData;
         if (dustParams == NULL)

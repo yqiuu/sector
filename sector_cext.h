@@ -61,6 +61,7 @@ struct sed_params {
     // Raw templates
     int minZ;
     int maxZ;
+    int nMaxZ;
     int nZ;
     double *Z;
     int nWaves;
