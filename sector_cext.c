@@ -514,10 +514,6 @@ void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
 void compute_spectra_full(double *target, struct sed_params *spectra,
                           struct gal_params *galParams, struct dust_params *dustParams,
                           short nThread) {
-    // Trim the metallicity of each SSP such that it is within the range of
-    // input SED templates
-    trim_gal_params(galParams, spectra->minZ, spectra->maxZ);
-
     // Initialise SED templates
     spectra->ready = NULL;
     spectra->working = NULL;
@@ -601,6 +597,10 @@ void compute_spectra_full(double *target, struct sed_params *spectra,
 double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams, struct dust_params *dustParams,
                                short outType, short nThread) {
+    // Trim the metallicity of each SSP such that it is within the range of
+    // input SED templates
+    trim_gal_params(galParams, spectra->minZ, spectra->maxZ);
+
     #ifdef TIMING
         init_profiler();
         timing_start("Compute magnitudes");
