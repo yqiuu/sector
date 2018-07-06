@@ -127,16 +127,17 @@ double trapz_table(double *y, double *x, int nPts, double a, double b) {
 }
 
 
-double trapz_filter(double *filter, double *flux, double *waves, int nWaves) {
+double trapz_filter(double *filter, double *filterWaves, int nFilterWaves, 
+                    double *flux, double *waves, int nWaves) {
     /* integrate the flux in a filter */
-    int i;
-    double y0 = filter[0]*flux[0];
-    double y1;
+    int iFW;
+    double f1 = interp(filterWaves[0], waves, flux, nWaves)*filter[0];
+    double f2;
     double I = 0.;
-    for(i = 1; i < nWaves; ++i) {
-        y1 = filter[i]*flux[i];
-        I += (waves[i] - waves[i - 1])*(y0 + y1);
-        y0 = y1;
+    for(iFW = 1; iFW < nFilterWaves; ++iFW) {
+        f2 = interp(filterWaves[iFW], waves, flux, nWaves)*filter[iFW];
+        I += (filterWaves[iFW] - filterWaves[iFW - 1])*(f1 + f2);
+        f1 = f2;
     }
     return I/2.;
 }

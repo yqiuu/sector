@@ -424,33 +424,24 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
     }
     else {
         // Intgrate SED templates over filters
-        int iFW, nFW;
+        int nFW;
         int *nFilterWaves = spectra->nFilterWaves;
         double *pFilterWaves = spectra->filterWaves;
         double *pFilters = spectra->filters;
-        double *filterData = NULL;
         double *waves = spectra->waves;
-        double I;
 
         n = nZ*nAgeStep;
         refSpectra = malloc(nFlux*n*sizeof(double));
         for(iF = 0; iF < nFlux; ++iF) {
             nFW = nFilterWaves[iF];
-            filterData = (double*)malloc(nFW*sizeof(double));
             for(i = 0; i < n; ++i) {
                 iA = i/nZ;
                 if (ageFlag[iA])
                     continue;
-                pData = readyData + (i%nZ*nAgeStep + iA)*nWaves;
-                for(iFW= 0; iFW < nFW; ++iFW)
-                    filterData[iFW] = interp(pFilterWaves[iFW], waves, pData, nWaves)*pFilters[iFW];
-                I = 0.;
-                for(iFW = 1; iFW < nFW; ++iFW)
-                    I += (pFilterWaves[iFW] - pFilterWaves[iFW - 1]) \
-                         *(filterData[iFW] + filterData[iFW - 1]);
-                refSpectra[iF*n + i] = I/2.;
+                refSpectra[iF*n + i] = trapz_filter(pFilters, pFilterWaves, nFW,
+                                                    readyData + (i%nZ*nAgeStep + iA)*nWaves,
+                                                    waves, nWaves);
             }
-            free(filterData);
             pFilterWaves += nFW;
             pFilters += nFW;
         }
@@ -529,7 +520,7 @@ void compute_spectra(double *target, struct sed_params *spectra,
         spectra->outBC = NULL;
     }
     else
-        init_templates_special(spectra, dustParams->tBC);
+        init_templates_special(spectra, dustParams->tBC, 0);
 
     #ifdef TIMING
         profiler_start("Summation over progenitors", SUM);

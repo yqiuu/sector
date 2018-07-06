@@ -18,7 +18,8 @@ void free_2d_double(double **p, int nRow);
 int bisection_search(double a, double *x, int nX);
 double interp(double xp, double *x, double *y, int nPts);
 double trapz_table(double *y, double *x, int nPts, double a, double b);
-double trapz_filter(double *filter, double *flux, double *waves, int nWaves);
+double trapz_filter(double *filter, double *filterWaves, int nFilterwaves,
+                    double *flux, double *waves, int nWaves);
 
 struct linResult {
     double slope;
@@ -108,6 +109,6 @@ double *composite_spectra_cext(struct sed_params *spectra,
 #endif
 
 #ifndef _DUST_
-void init_templates_special(struct sed_params *spectra, double tBC );
+void init_templates_special(struct sed_params *spectra, double tBC, int approx);
 void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams);
 #endif

@@ -11,27 +11,24 @@ inline int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
 }
 
 
-void init_templates_special(struct sed_params *spectra, double tBC ) {
-    // Special templates are for birth cloud 
-    // Dimension: metallicity × wavelength
-    int iZW;
-    double *pData;
-    int nZ = spectra->nZ;
-    int nWaves = spectra->nWaves;
-    int nAge = spectra->nAge;
-    int nZW = nZ*nWaves;
-    double *age = spectra->age;
-    double *rawData = spectra->raw;
+void init_templates_special(struct sed_params *spectra, double tBC, int approx) {
+    /* Special templates are for birth cloud 
+     * Dimension: metallicity × wavelength
+     */
 
     // Find the time inverval containning the birth cloud
+    int nZ = spectra->nZ;
+    int nWaves = spectra->nWaves;
+    int nZW = nZ*nWaves;
+    double *age = spectra->age;
     int nAgeStep = spectra->nAgeStep;
     double *ageStep = spectra->ageStep;
     int iAgeBC = birth_cloud_interval(tBC, ageStep, nAgeStep);
     double t0, t1;
 
     if (iAgeBC == nAgeStep) {
-        spectra->inBC = (double*)calloc(nZ*nWaves, sizeof(double));
-        spectra->outBC = (double*)calloc(nZ*nWaves, sizeof(double));
+        spectra->inBC = (double*)calloc(nZW, sizeof(double));
+        spectra->outBC = (double*)calloc(nZW, sizeof(double));
         return;
     }
     else if (iAgeBC == 0) {
@@ -45,14 +42,76 @@ void init_templates_special(struct sed_params *spectra, double tBC ) {
         t1 = ageStep[iAgeBC];
     }
 
-    spectra->inBC = (double*)malloc(nZ*nWaves*sizeof(double));
-    pData = spectra->inBC;
-    for(iZW = 0; iZW < nZW; ++iZW) 
-        *pData++ = trapz_table(rawData + iZW*nAge, age, nAge, t0, tBC);
-    spectra->outBC = (double*)malloc(nZ*nWaves*sizeof(double));
-    pData = spectra->outBC;
-    for(iZW = 0; iZW < nZW; ++iZW) 
-        *pData++ = trapz_table(rawData + iZW*nAge, age, nAge, tBC, t1);
+    // Integrate special templates over the time step of the birth cloud
+    int iZW;
+    int nAge = spectra->nAge;
+    double *rawData = spectra->raw;
+    double *inBC = malloc(nZW*sizeof(double));
+    double *outBC = malloc(nZW*sizeof(double));
+
+    for(iZW = 0; iZW < nZW; ++iZW) {
+        inBC[iZW] = trapz_table(rawData + iZW*nAge, age, nAge, t0, tBC);
+        outBC[iZW] = trapz_table(rawData + iZW*nAge, age, nAge, tBC, t1);
+    }
+    if (!approx) {
+        spectra->inBC = inBC;
+        spectra->outBC = outBC;
+        return;
+    }
+
+    // Intgrate special templates over filters
+    int iF, iZ;
+    int nFlux = spectra->nFlux;
+    double *refInBC = malloc(nFlux*nZ*sizeof(double));
+    double *refOutBC = malloc(nFlux*nZ*sizeof(double));
+    double *pInBC = refInBC;
+    double *pOutBC = refOutBC;
+
+    int nFW;
+    int *nFilterWaves = spectra->nFilterWaves;
+    double *pFilterWaves = spectra->filterWaves;
+    double *pFilters = spectra->filters;
+    double *waves = spectra->waves;
+
+    for(iF = 0; iF < nFlux; ++iF) {
+        nFW = nFilterWaves[iF];
+        for(iZ = 0; iZ < nZ; ++iZ) {
+            pInBC[iZ] = trapz_filter(pFilters, pFilterWaves, nFW,
+                                               inBC + iZ*nWaves, waves, nWaves);
+            pOutBC[iZ] = trapz_filter(pFilters, pFilterWaves, nFW,
+                                                outBC + iZ*nWaves, waves, nWaves);
+        }
+        pFilterWaves += nFW;
+        pFilters += nFW;
+        pInBC += nZ;
+        pOutBC += nZ;
+    }
+    free(inBC);
+    free(outBC);
+
+    // Interploate special templates along metallicities
+    int minZ = spectra->minZ;
+    int nMaxZ = spectra->nMaxZ;
+    double *Z = spectra->Z;
+    double interpZ;
+
+    inBC = (double*)malloc(nMaxZ*nFlux*sizeof(double));
+    outBC = (double*)malloc(nMaxZ*nFlux*sizeof(double));
+    pInBC = inBC;
+    pOutBC = outBC;
+    for(iZ = 0; iZ < nMaxZ; ++iZ) {
+        interpZ = (minZ + iZ + 1.)/1000.;
+        for(iF = 0; iF < nFlux; ++iF) {
+            pInBC[iF] = interp(interpZ, Z, refInBC + iF*nZ, nZ);
+            pOutBC[iF] = interp(interpZ, Z, refOutBC + iF*nZ, nZ);
+        }
+        pInBC += nFlux;
+        pOutBC += nFlux;
+    }
+    spectra->inBC = inBC;
+    spectra->outBC = outBC;
+    free(refInBC);
+    free(refOutBC);
 }
 
 
