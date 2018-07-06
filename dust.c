@@ -56,73 +56,56 @@ void init_templates_special(struct sed_params *spectra, double tBC ) {
 }
 
 
-void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams, int *ageFlag) {
-    /* tBC: life time of the birth clound
-     * nu: fraction of ISM dust absorption
-     * tauUV: V-band absorption optical depth
-     * nBC: power law index of tauBC
-     * nISM: power law index of tauISM
+void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams) {
+    /* tBC:   life time of the birth clound
+     * nu:    fraction of ISM dust absorption
+     * tauUV: UV-band absorption optical depth
+     * nBC:   power law index of tauBC
+     * nISM:  power law index of tauISM
      *
      * Reference: da Cunha et al. 2008
      */
-    int iA, iW, i, n;
-    double *pData;
-
+    int iA, iW, iZ;
     int nZ = spectra->nZ;
     int nWaves = spectra->nWaves;
     double *waves = spectra->waves;
     int nAgeStep = spectra->nAgeStep;
-    double *data = spectra->ready;
-    double *inBC = spectra->inBC;
-    double *outBC = spectra->outBC;
+    double *pData = spectra->ready;
+    double *pInBC = spectra->inBC;
+    double *pOutBC = spectra->outBC;
 
     double tauUV_ISM = dustParams->tauUV_ISM;
     double nISM = dustParams->nISM;
     double tauUV_BC = dustParams->tauUV_BC;
     double nBC = dustParams->nBC;
-    double tBC = dustParams->tBC;
+    int iAgeBC = birth_cloud_interval(dustParams->tBC, spectra->ageStep, nAgeStep);
     double *transISM = malloc(nWaves*sizeof(double));
     double *transBC = malloc(nWaves*sizeof(double));
     double ratio;
-    int iAgeBC = birth_cloud_interval(tBC, spectra->ageStep, nAgeStep);
 
-    // Compute the optical depth of both the birth cloud and the ISM
+    // Compute the optical depth of both birth cloud and ISM
     for(iW = 0; iW < nWaves; ++iW) {
         ratio = waves[iW]/1600.;
         transISM[iW] = exp(-tauUV_ISM*pow(ratio, nISM));
         transBC[iW] = exp(-tauUV_BC*pow(ratio, nBC));
     }
 
-    // t_s < tBC < t_s + dt
-    if (iAgeBC != nAgeStep && !ageFlag[iAgeBC]) {
-        // loop info: n = nZ*nWaves
-        //            iZ = i/nWaves
-        //            iW = i%nWaves
-        n = nZ*nWaves;
-        for(i = 0; i < n; ++i) {
-            iW = i%nWaves;
-            data[(i/nWaves*nAgeStep + iAgeBC)*nWaves + iW] = transBC[iW]*inBC[i] + outBC[i];
+    for(iZ = 0; iZ < nZ; ++iZ) {
+        for(iA = 0; iA < nAgeStep; ++iA) {
+            // Apply optical depth of birth cloud
+            if (iA < iAgeBC)
+                for(iW = 0; iW < nWaves; ++iW)
+                    pData[iW] *= transBC[iW];
+            else if (iA == iAgeBC)
+                for(iW = 0; iW < nWaves; ++iW)
+                    pData[iW] = transBC[iW]*pInBC[iW] + pOutBC[iW];
+            // Apply optical depth of ISM
+            for(iW = 0; iW < nWaves; ++iW)
+                pData[iW] *= transISM[iW];
+            pData += nWaves;
         }
-    }
-
-    // tBC > t_s
-    n = iAgeBC*nZ;
-    for(i = 0; i < n; ++i) {
-        iA = i%iAgeBC;
-        if (ageFlag[iA])
-            continue;
-        pData = data + (i/iAgeBC*nAgeStep + iA)*nWaves;
-        for(iW = 0; iW < nWaves; ++iW)
-            pData[iW] *= transBC[iW];
-    }
-
-    n = nAgeStep*nZ;
-    for(i = 0; i < n; ++i) {
-        if (ageFlag[i%nAgeStep])
-            continue;
-        pData = data + i*nWaves;
-        for(iW = 0; iW < nWaves; ++iW)
-            pData[iW] *= transISM[iW];
+        pInBC += nWaves;
+        pOutBC += nWaves;
     }
 
     free(transISM);

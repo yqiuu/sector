@@ -108,5 +108,5 @@ double *composite_spectra_cext(struct sed_params *spectra,
 
 #ifndef _DUST_
 void init_templates_special(struct sed_params *spectra, double tBC );
-void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams, int *ageFlag);
+void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams);
 #endif
