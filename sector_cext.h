@@ -77,6 +77,7 @@ struct sed_params {
     int *nFilterWaves;
     double *filterWaves;
     double *filters;
+    double *centreWaves;
     double *logWaves;
     // IGM absorption
     double *LyAbsorption;

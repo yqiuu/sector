@@ -671,6 +671,7 @@ cdef extern from "sector_cext.h":
         int *nFilterWaves
         double *filterWaves
         double *filters
+        double *centreWaves
         double *logWaves
         # IGM absorption
         double *LyAbsorption
@@ -810,8 +811,10 @@ cdef void init_filters(sed_params *spectra, waves, int nBeta, restBands, obsBand
     spectra.filterWaves = init_1d_double(np.concatenate(filterWaves).astype('f8'))
     spectra.filters = init_1d_double(np.concatenate(filters).astype('f8'))
     if nBeta > 0:
+        spectra.centreWaves = init_1d_double(restBands[:, 0])
         spectra.logWaves = init_1d_double(np.log(restBands[:, 0]))
     else:
+        spectra.centreWaves = NULL
         spectra.logWaves = NULL
 
 
@@ -1006,6 +1009,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             spectra.nFilterWaves = NULL
             spectra.filterWaves = NULL
             spectra.filters = NULL
+            spectra.centreWaves = NULL
             spectra.logWaves = NULL
             cOutType = 1
         elif outType == 'UV slope':
