@@ -375,7 +375,7 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
         memcpy(readyData, spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));
         ageFlag = age_flag(pHistories, nAgeStep);
         ZFlag = Z_flag(pHistories, nMaxZ);
-        dust_absorption(spectra, dustParams + iG);
+        dust_absorption_full(spectra, dustParams + iG);
     }
     else if (iG == -1) {
         memcpy(readyData, spectra->integrated, nZ*nAgeStep*nWaves*sizeof(double));

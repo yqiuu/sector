@@ -56,7 +56,7 @@ void init_templates_special(struct sed_params *spectra, double tBC ) {
 }
 
 
-void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams) {
+void dust_absorption_full(struct sed_params *spectra, struct dust_params *dustParams) {
     /* tBC:   life time of the birth clound
      * nu:    fraction of ISM dust absorption
      * tauUV: UV-band absorption optical depth
