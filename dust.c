@@ -1,7 +1,7 @@
 #define _DUST_
 #include"sector_cext.h"
 
-inline int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
+int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
     if (tBC >= ageStep[nAgeStep - 1])
         return nAgeStep;
     else if (tBC < ageStep[0])
@@ -171,3 +171,39 @@ void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams)
     free(transBC);
 }
 
+
+void dust_absorption_approx(double *inBCFlux, double *outBCFlux, 
+                            struct sed_params *spectra, struct dust_params *dustParams) {
+    // Apply reddening directly on the flux in fitlers as an approximation
+    int iF;
+    int nFlux = spectra->nFlux;
+    double *centreWaves = spectra->centreWaves;
+
+    double tauUV_ISM = dustParams->tauUV_ISM;
+    double nISM = dustParams->nISM;
+    double tauUV_BC = dustParams->tauUV_BC;
+    double nBC = dustParams->nBC;
+    double *transISM = malloc(nFlux*sizeof(double));
+    double *transBC = malloc(nFlux*sizeof(double));
+    double ratio;
+
+    // Compute the optical depth of both birth cloud and ISM
+    for(iF = 0; iF < nFlux; ++iF) {
+        ratio = centreWaves[iF]/1600.;
+        transISM[iF] = exp(-tauUV_ISM*pow(ratio, nISM));
+        transBC[iF] = exp(-tauUV_BC*pow(ratio, nBC));
+    }
+
+    // Apply optical depth of birth cloud
+    for(iF = 0; iF < nFlux; ++iF)
+        inBCFlux[iF] *= transBC[iF];
+
+    // Apply optical depth of ISM
+    for(iF = 0; iF < nFlux; ++iF) {
+        inBCFlux[iF] *= transISM[iF];
+        outBCFlux[iF] *= transISM[iF];
+    }
+
+    free(transISM);
+    free(transBC);
+}

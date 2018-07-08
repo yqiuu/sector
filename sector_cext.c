@@ -503,8 +503,8 @@ void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
 
 
 void compute_spectra(double *target, struct sed_params *spectra,
-                          struct gal_params *galParams, struct dust_params *dustParams,
-                          short nThread) {
+                     struct gal_params *galParams, struct dust_params *dustParams,
+                     int approx, short nThread) {
     // Initialise SED templates
     spectra->ready = NULL;
     spectra->working = NULL;
@@ -519,19 +519,17 @@ void compute_spectra(double *target, struct sed_params *spectra,
         spectra->inBC = NULL;
         spectra->outBC = NULL;
     }
-    else
-        init_templates_special(spectra, dustParams->tBC, 0);
 
     #ifdef TIMING
         profiler_start("Summation over progenitors", SUM);
     #endif
     #pragma omp parallel \
     default(none) \
-    firstprivate(spectra, galParams, dustParams, target) \
+    firstprivate(spectra, galParams, dustParams, target, approx) \
     num_threads(nThread)
     {
         int iF, iG;
-        double *pData;
+        int offset;
         double *pTarget;
 
         int iP, nProg;
@@ -550,35 +548,100 @@ void compute_spectra(double *target, struct sed_params *spectra,
         double *workingData = malloc(spectra->nMaxZ*nAgeStep*nFlux*sizeof(double));
         omp_spectra.ready = readyData;
         omp_spectra.working = workingData;
-        if (dustParams == NULL)
-            init_templates_working(&omp_spectra, histories, NULL, -1);
 
-        #pragma omp for schedule(static, 1)
-        for(iG = 0; iG < nGal; ++iG) {
-            pHistories = histories + iG;
-            // Add dust absorption to SED templates
-            init_templates_working(&omp_spectra, pHistories, dustParams, iG);
-            // Sum contributions from all progenitors
-            nProg = pHistories->nBurst;
-            pTarget = target + iG*nFlux;
-            for(iP = 0; iP < nProg; ++iP) {
-                pBursts = pHistories->bursts + iP;
-                sfr = pBursts->sfr;
-                metals = (int)(pBursts->metals*1000 - .5);
-                pData = workingData + (metals*nAgeStep + pBursts->index)*nFlux;
-                for(iF = 0 ; iF < nFlux; ++iF)
-                    pTarget[iF] += sfr*pData[iF];
+
+        if (approx) {
+            init_templates_working(&omp_spectra, histories, NULL, -1);
+            init_templates_special(&omp_spectra, dustParams->tBC, approx);
+
+            int iAge;
+            // Assume that tBC is the same for every galaxy
+            int iAgeBC = birth_cloud_interval(dustParams->tBC, galParams->ageStep, nAgeStep);
+            double *inBC = omp_spectra.inBC;
+            double *outBC = omp_spectra.outBC;
+            double *inBCFlux = malloc(nFlux*sizeof(double));
+            double *outBCFlux = malloc(nFlux*sizeof(double));
+
+            #pragma omp for schedule(static, 1)
+            for(iG = 0; iG < nGal; ++iG) {
+                pHistories = histories + iG;
+                // Sum contributions from all progenitors
+                nProg = pHistories->nBurst;
+                pTarget = target + iG*nFlux;
+                for(iF = 0; iF < nFlux; ++iF) {
+                    inBCFlux[iF] = 0.;
+                    outBCFlux[iF] = 0.;
+                }
+                for(iP = 0; iP < nProg; ++iP) {
+                    pBursts = pHistories->bursts + iP;
+                    iAge = pBursts->index;
+                    sfr = pBursts->sfr;
+                    metals = (int)(pBursts->metals*1000 - .5);
+                    if (iAge > iAgeBC) {
+                        offset = (metals*nAgeStep + iAge)*nFlux;
+                        for(iF = 0; iF < nFlux; ++iF)
+                            outBCFlux[iF] += sfr*workingData[offset + iF];
+                    }
+                    else if (iAge == iAgeBC) {
+                        offset = metals*nFlux;
+                        for(iF = 0; iF < nFlux; ++iF) {
+                            inBCFlux[iF] += sfr*inBC[offset + iF];
+                            outBCFlux[iF] += sfr*outBC[offset + iF];
+                        }
+                    }
+                    else {
+                        offset = (metals*nAgeStep + iAge)*nFlux;
+                        for(iF = 0; iF < nFlux; ++iF)
+                            inBCFlux[iF] += sfr*workingData[offset +iF];
+                    }
+                }
+                
+                // Apply dust absorption
+                dust_absorption_approx(inBCFlux, outBCFlux, &omp_spectra, dustParams + iG);
+
+                for(iF = 0; iF < nFlux; ++iF)
+                    pTarget[iF] += inBCFlux[iF] + outBCFlux[iF];
+                #ifdef TIMING
+                    report(iG, nGal);
+                #endif
             }
-            #ifdef TIMING
-                report(iG, nGal);
-            #endif
+            free(inBC);
+            free(outBC);
+            free(inBCFlux);
+            free(outBCFlux);
+        }
+        else {
+            if (dustParams == NULL)
+                init_templates_working(&omp_spectra, histories, NULL, -1);
+            else 
+                //  -Assume that tBC is the same for every galaxy
+                init_templates_special(&omp_spectra, dustParams->tBC, approx);
+
+            #pragma omp for schedule(static, 1)
+            for(iG = 0; iG < nGal; ++iG) {
+                pHistories = histories + iG;
+                // Add dust absorption to SED templates
+                init_templates_working(&omp_spectra, pHistories, dustParams, iG);
+                // Sum contributions from all progenitors
+                nProg = pHistories->nBurst;
+                pTarget = target + iG*nFlux;
+                for(iP = 0; iP < nProg; ++iP) {
+                    pBursts = pHistories->bursts + iP;
+                    sfr = pBursts->sfr;
+                    metals = (int)(pBursts->metals*1000 - .5);
+                    offset = (metals*nAgeStep + pBursts->index)*nFlux;
+                    for(iF = 0 ; iF < nFlux; ++iF)
+                        pTarget[iF] += sfr*workingData[offset + iF];
+                }
+                #ifdef TIMING
+                    report(iG, nGal);
+                #endif
+            }
         }
         free(readyData);
         free(workingData);
     }
     free(spectra->integrated);
-    free(spectra->inBC);
-    free(spectra->outBC);
     #ifdef TIMING
         profiler_end(SUM);
     #endif
@@ -587,7 +650,7 @@ void compute_spectra(double *target, struct sed_params *spectra,
 
 double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams, struct dust_params *dustParams,
-                               short outType, short nThread) {
+                               short outType, short approx, short nThread) {
     // Trim the metallicity of each SSP such that it is within the range of
     // input SED templates
     trim_gal_params(galParams, spectra->minZ, spectra->maxZ);
@@ -606,7 +669,11 @@ double *composite_spectra_cext(struct sed_params *spectra,
     double *pOutput = output;
     for(iGF = 0; iGF < nGF; ++iGF)
         *pOutput++ = TOL;
-    compute_spectra(output, spectra, galParams, dustParams, nThread);
+
+    // Compute spectra for given inputs
+    //   -Only use approximation when considering dust
+    compute_spectra(output, spectra, galParams, dustParams,
+                    (short)(approx && dustParams != NULL), nThread);
 
     if (outType == 0) {
         // Convert to AB magnitude

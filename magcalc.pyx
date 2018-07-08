@@ -847,7 +847,7 @@ def get_output_name(prefix, postfix, snap, path):
 cdef extern from "sector_cext.h" nogil:
     double *composite_spectra_cext(sed_params *spectra,
                                    gal_params *galParams, dust_params *dustParams,
-                                   short outType, short nThread)
+                                   short outType, short approx, short nThread)
 
 
 def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
@@ -855,6 +855,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
                       outType = 'ph',
                       restBands = [[1600, 100],], obsBands = [], obsFrame = False,
                       prefix = 'mags', outPath = './',
+                      approx = False,
                       nThread = 1):
     """
     Main function to calculate galaxy magnitudes and spectra.
@@ -1026,7 +1027,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
         # Compute spectra
         cOutput = composite_spectra_cext(&spectra, &galParams, dustParams,
-                                         cOutType, nThread)
+                                         cOutType, <short>approx, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':
             mvOutput = <double[:nGal*(nFlux + nR)]>cOutput
@@ -1089,9 +1090,10 @@ cdef class calibration:
         int nSnap
         gal_params *galParams
         sed_params *spectra
+        short approx
         short nThread
 
-    def __cinit__(self, sfhList, sedPath, nThread = 1):
+    def __cinit__(self, sfhList, sedPath, approx = False, nThread = 1):
         cdef:
             int iS
             int nSnap = len(sfhList)
@@ -1102,6 +1104,7 @@ cdef class calibration:
         self.nSnap = nSnap
         self.galParams = <gal_params*>malloc(nSnap*sizeof(gal_params))
         self.spectra = <sed_params*>malloc(nSnap*sizeof(sed_params))
+        self.approx = <short>approx
         self.nThread = <short>nThread
 
         waves = get_wavelength(sedPath)
@@ -1167,7 +1170,8 @@ cdef class calibration:
         for iS in xrange(nSnap):
             # Compute spectra
             dustParams = init_dust_parameters(dust[iS])
-            output = composite_spectra_cext(pSpectra, pGalParams, dustParams, 2, self.nThread)
+            output = composite_spectra_cext(pSpectra, pGalParams, dustParams, 2,
+                                            self.approx, self.nThread)
             pOutput = output
             nGal = pGalParams.nGal
             mvM1600 = np.zeros(nGal, dtype = 'f8')
