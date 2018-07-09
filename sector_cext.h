@@ -102,6 +102,9 @@ struct dust_params {
 
 #ifndef _SECTOR_
 void init_templates_raw(struct sed_params *spectra, char *fName);
+void init_filters(struct sed_params *spectra,
+                  double *betaBands, int nBeta, double *restBands, int nRest,
+                  double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z);
 void shrink_templates_raw(struct sed_params *spectra, double maxAge);
 double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams, struct dust_params *dustParams,
@@ -112,6 +115,6 @@ double *composite_spectra_cext(struct sed_params *spectra,
 int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep);
 void init_templates_special(struct sed_params *spectra, double tBC, int approx);
 void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams);
-void dust_absorption_approx(double *inBCFlux, double *outBCFlux, 
+void dust_absorption_approx(double *inBCFlux, double *outBCFlux,
                             struct sed_params *spectra, struct dust_params *dustParams);
 #endif

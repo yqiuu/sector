@@ -202,13 +202,13 @@ void init_templates_raw(struct sed_params *spectra, char *fName) {
     spectra->nWaves = nWaves;
     spectra->waves = (double*)malloc(nWaves*sizeof(double));
     H5LTread_dataset_double(file_id, "/waves", spectra->waves);
-    printf("# Wavelength range:\n#\t%.1f AA to %.1f AA\n", 
+    printf("# Wavelength range:\n#\t%.1f AA to %.1f AA\n",
            spectra->waves[0], spectra->waves[nWaves - 1]);
     // Read stellar age
     spectra->nAge = nAge;
     spectra->age = (double*)malloc(nAge*sizeof(double));
     H5LTread_dataset_double(file_id, "/age", spectra->age);
-    printf("# Stellar age range:\n#\t%.2f Myr to %.2f Myr\n", 
+    printf("# Stellar age range:\n#\t%.2f Myr to %.2f Myr\n",
            spectra->age[0]*1e-6, spectra->age[nAge - 1]*1e-6);
     // Read flux
     spectra->raw = (double*)malloc(nZ*nWaves*nAge*sizeof(double));
@@ -315,6 +315,113 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
     }
     free(wavesIndices);
 }
+
+
+void init_filters(struct sed_params *spectra,
+                  double *betaBands, int nBeta, double *restBands, int nRest,
+                  double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z) {
+    // Initialise filter parameters
+    //   -This function should be called after ``init_templates_raw``
+    int iF, iW;
+    double *pData = betaBands;
+
+    int nFlux = nBeta + nRest + nObs;
+    int nWaves = spectra->nWaves;
+    double *waves = spectra->waves;
+    int nNewWaves;
+    double *newWaves = malloc(nWaves*sizeof(double));
+    double w;
+    double lower, upper;
+    double norm;
+
+    int *nFilterWaves = malloc(nFlux*sizeof(int));
+    double *filterWaves = NULL;
+    double *filters = NULL;
+    int offset = 0;
+
+    double *centreWaves = malloc(nFlux*sizeof(double));
+    double *logWaves = malloc(nFlux*sizeof(double));
+
+    // Initialise rest-frame filters and those that are related to the UV slope
+    for(iF = 0; iF < nBeta + nRest; ++iF) {
+        if (iF == nBeta)
+            pData = restBands;
+        //   -Construct wavelengths for a new filter
+        lower = *pData++;
+        upper = *pData++;
+        if (lower < waves[0] || upper > waves[nWaves - 1]) {
+            printf("Filter wavelength range are beyond SED templates");
+            exit(0);
+        }
+        nNewWaves = 1;
+        newWaves[0] = lower;
+        for(iW = 0; iW < nWaves; ++iW) {
+            w = waves[iW];
+            if (w > lower && w < upper)
+                newWaves[nNewWaves++] = w;
+        }
+        newWaves[nNewWaves++] = upper;
+        nFilterWaves[iF] = nNewWaves;
+        filterWaves = realloc(filterWaves, (offset + nNewWaves)*sizeof(double));
+        memcpy(filterWaves + offset, newWaves, nNewWaves*sizeof(double));
+        //  -Construct transmissions
+        filters = realloc(filters, (offset + nNewWaves)*sizeof(double));
+        if (iF < nBeta) {
+            norm = 1./(upper - lower);
+            for(iW = 0; iW < nNewWaves; ++iW)
+                *(filters + offset + iW) = norm;
+        }
+        else {
+            norm = 1./log(upper/lower);
+            for(iW = 0; iW < nNewWaves; ++iW)
+                *(filters + offset + iW) = 3.34e4*newWaves[iW]*norm;
+        }
+        offset += nNewWaves;
+        ////
+        w = (lower + upper)/2.;
+        centreWaves[iF] = w;
+        logWaves[iF] = log(w);
+    }
+
+    // Initialise observer-frame filters
+    if (nObs > 0) {
+        memcpy(nFilterWaves + nBeta + nRest, nObsWaves, nObs*sizeof(int));
+        nNewWaves = 0;
+        for(iF = 0; iF < nObs; ++iF)
+            nNewWaves += nObsWaves[iF];
+        filterWaves = realloc(filterWaves, (offset + nNewWaves)*sizeof(double));
+        memcpy(filterWaves + offset, obsWaves, nNewWaves*sizeof(double));
+        filters = realloc(filters, (offset + nNewWaves)*sizeof(double));
+        memcpy(filters + offset, obsTrans, nNewWaves*sizeof(double));
+        for(iF = 0; iF < nObs; ++iF) {
+            nNewWaves = nObsWaves[iF];
+            lower = filterWaves[offset];
+            upper = filterWaves[offset + nNewWaves - 1];
+            //  -Divide the transmission by the wavelength to calculate the normalisation
+            for(iW = 0; iW < nNewWaves; ++iW)
+                filters[offset + iW] /= filterWaves[offset + iW];
+            norm = 1./trapz_table(filters + offset, filterWaves + offset, nNewWaves, lower, upper);
+            //  -Transform the filter such that it can give AB magnitude
+            for(iW = 0; iW < nNewWaves; ++iW)
+                filters[offset + iW] *= 3.34e4*filterWaves[offset + iW]*filterWaves[offset + iW]*norm;
+            //  -Transform the filter to the rest-frame
+            for(iW = 0; iW < nNewWaves; ++iW)
+                filterWaves[offset + iW] /= 1. + z;
+            offset += nNewWaves;
+        }
+    }
+
+    spectra->nFlux = nFlux;
+    spectra->nObs = nObs;
+    spectra->nFilterWaves = nFilterWaves;
+    spectra->filterWaves = filterWaves;
+    spectra->filters = filters;
+    spectra->centreWaves = centreWaves;
+    spectra->logWaves = logWaves;
+
+    free(newWaves);
+}
+
 
 
 void init_templates_integrated(struct sed_params *spectra) {
@@ -476,7 +583,7 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
  * Primary Functions                                                           *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux, 
+void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
                   double *logWaves, int nFit, int nR) {
     #ifdef TIMING
         profiler_start("Slope fit", FIT);
@@ -595,7 +702,7 @@ void compute_spectra(double *target, struct sed_params *spectra,
                             inBCFlux[iF] += sfr*workingData[offset +iF];
                     }
                 }
-                
+
                 // Apply dust absorption
                 dust_absorption_approx(inBCFlux, outBCFlux, &omp_spectra, dustParams + iG);
 
@@ -613,7 +720,7 @@ void compute_spectra(double *target, struct sed_params *spectra,
         else {
             if (dustParams == NULL)
                 init_templates_working(&omp_spectra, histories, NULL, -1);
-            else 
+            else
                 //  -Assume that tBC is the same for every galaxy
                 init_templates_special(&omp_spectra, dustParams->tBC, approx);
 
