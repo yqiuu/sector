@@ -119,8 +119,8 @@ cdef class meraxes_output:
         ssp *bursts
         int nBurst
         #
-        int minSnap
-        int maxSnap
+        int snapMin
+        int snapMax
 
 
     def __cinit__(self, fname, int snapMax, double h):
