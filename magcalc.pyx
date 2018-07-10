@@ -959,13 +959,13 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         int nRest = 0
         int nObs = 0
         int nFlux = 0
-        int cOutType = 0
+        int c_outType = 0
 
         int nR = 3
 
         dust_params *dustParams = NULL
 
-        double *cOutput
+        double *c_output
         double[:] mvOutput
 
     for iS in xrange(nSnap):
@@ -989,31 +989,31 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             nRest = len(restBands)
             nObs = len(obsBands)
             nFlux = nRest + nObs
-            cOutType = 0
+            c_outType = 0
         elif outType == 'sp':
             generate_filters(&spectra, outType, [], [], z, obsFrame)
             nFlux = nWaves
-            cOutType = 1
+            c_outType = 1
         elif outType == 'UV slope':
             generate_filters(&spectra, outType, [], [], z, False)
             nFlux = spectra.nFlux
             centreWaves = np.array(<double[:nFlux]>spectra.centreWaves)
-            cOutType = 2
+            c_outType = 2
         else:
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
         # Compute spectra
-        cOutput = composite_spectra_cext(&spectra, &galParams, dustParams,
-                                         cOutType, <short>approx, nThread)
+        c_output = composite_spectra_cext(&spectra, &galParams, dustParams,
+                                         c_outType, <short>approx, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':
-            mvOutput = <double[:nGal*(nFlux + nR)]>cOutput
+            mvOutput = <double[:nGal*(nFlux + nR)]>c_output
             output = np.hstack([np.asarray(mvOutput[nGal*nFlux:],
                                            dtype = 'f4').reshape(nGal, -1),
                                 np.asarray(mvOutput[:nGal*nFlux],
                                            dtype = 'f4').reshape(nGal, -1)])
         else:
-            mvOutput = <double[:nGal*nFlux]>cOutput
+            mvOutput = <double[:nGal*nFlux]>c_output
             output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
         # Convert apparent magnitudes to absolute magnitudes
         if outType == 'ph' and nObs > 0:
@@ -1049,7 +1049,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         free(dustParams)
         free(spectra.LyAbsorption)
         free_filters(&spectra)
-        free(cOutput)
+        free(c_output)
 
     free_raw_spectra(&spectra)
 
