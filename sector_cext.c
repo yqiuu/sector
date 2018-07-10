@@ -350,7 +350,7 @@ void init_filters(struct sed_params *spectra,
         lower = *pData++;
         upper = *pData++;
         if (lower < waves[0] || upper > waves[nWaves - 1]) {
-            printf("Filter wavelength range are beyond SED templates");
+            printf("Filter wavelength range are beyond SED templates\n");
             exit(0);
         }
         nNewWaves = 1;
@@ -397,6 +397,10 @@ void init_filters(struct sed_params *spectra,
             nNewWaves = nObsWaves[iF];
             lower = filterWaves[offset];
             upper = filterWaves[offset + nNewWaves - 1];
+            if (lower < waves[0]*(1. + z) || upper > waves[nWaves - 1]*(1. + z)) {
+                printf("Filter wavelength range are beyond SED templates\n");
+                exit(0);
+            }
             //  -Divide the transmission by the wavelength to calculate the normalisation
             for(iW = 0; iW < nNewWaves; ++iW)
                 filters[offset + iW] /= filterWaves[offset + iW];
