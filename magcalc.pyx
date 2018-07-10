@@ -757,7 +757,8 @@ cdef extern from "sector_cext.h":
                       double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z)
 
 
-cdef void generate_filters(sed_params *spectra, outType, restBands, obsBands, z, obsFrame):
+cdef void generate_filters(sed_params *spectra, outType,
+                           betaBands, restBands, obsBands, z, obsFrame):
     cdef:
         double *c_betaBands = NULL
         double *c_restBands = NULL
@@ -801,7 +802,8 @@ cdef void generate_filters(sed_params *spectra, outType, restBands, obsBands, z,
         spectra.centreWaves = NULL
         spectra.logWaves = NULL
     elif outType == "UV slope":
-        betaBands = beta_filters()
+        if betaBands == []:
+            betaBands = beta_filters()
         c_betaBands = init_1d_double(betaBands.flatten())
         c_restBands = init_1d_double(np.array([1550., 1650.]))
         init_filters(spectra, c_betaBands, len(betaBands), c_restBands, 1, NULL, NULL, NULL, 0, 0.)
@@ -842,11 +844,10 @@ cdef extern from "sector_cext.h" nogil:
 
 
 def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
-                      dust = None, IGM = 'I2014',
+                      dust = None, IGM = 'I2014', approx = False,
                       outType = 'ph',
-                      restBands = [[1600, 100],], obsBands = [], obsFrame = False,
+                      betaBands = [], restBands = [[1600, 100],], obsBands = [], obsFrame = False,
                       prefix = 'mags', outPath = './',
-                      approx = False,
                       nThread = 1):
     """
     Main function to calculate galaxy magnitudes and spectra.
@@ -985,17 +986,17 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         init_templates_raw(&spectra, os.path.join(sedPath, "sed_library.hdf5"))
         # Generate Filters
         if outType == 'ph':
-            generate_filters(&spectra, outType, restBands, obsBands, z, False)
+            generate_filters(&spectra, outType, [], restBands, obsBands, z, False)
             nRest = len(restBands)
             nObs = len(obsBands)
             nFlux = nRest + nObs
             c_outType = 0
         elif outType == 'sp':
-            generate_filters(&spectra, outType, [], [], z, obsFrame)
+            generate_filters(&spectra, outType, [], [], [], z, obsFrame)
             nFlux = nWaves
             c_outType = 1
         elif outType == 'UV slope':
-            generate_filters(&spectra, outType, [], [], z, False)
+            generate_filters(&spectra, outType, betaBands, [], [], z, False)
             nFlux = spectra.nFlux
             centreWaves = np.array(<double[:nFlux]>spectra.centreWaves)
             c_outType = 2
@@ -1070,7 +1071,7 @@ cdef class calibration:
         short approx
         short nThread
 
-    def __cinit__(self, sfhList, sedPath, approx = False, nThread = 1):
+    def __cinit__(self, sfhList, sedPath, betaBands, approx = False, nThread = 1):
         cdef:
             int iS
             int nSnap = len(sfhList)
@@ -1098,7 +1099,7 @@ cdef class calibration:
             # Read raw SED templates
             init_templates_raw(pSpectra, os.path.join(sedPath, "sed_library.hdf5"))
             # Generate filters
-            generate_filters(pSpectra, "UV slope", [], [], pGalParams.z, False)
+            generate_filters(pSpectra, "UV slope", betaBands, [], [], pGalParams.z, False)
             #
             shrink_templates_raw(pSpectra, pGalParams.ageStep[pGalParams.nAgeStep - 1])
             #
