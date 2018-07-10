@@ -674,7 +674,7 @@ cdef extern from "sector_cext.h":
         double *centreWaves
         double *logWaves
         # IGM absorption
-        double *LyAbsorption
+        int igm
         # Working templates
         int nAgeStep
         double *ageStep
@@ -979,9 +979,9 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             dustParams = init_dust_parameters(dust[iS])
         # Compute the transmission of the IGM
         if IGM == 'I2014':
-            spectra.LyAbsorption = init_1d_double(Lyman_absorption_Inoue((1. + z)*waves, z))
+            spectra.igm = 1
         else:
-            spectra.LyAbsorption = NULL
+            spectra.igm = 0
         # Read raw SED templates
         init_templates_raw(&spectra, os.path.join(sedPath, "sed_library.hdf5"))
         # Generate Filters
@@ -1048,7 +1048,6 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
         free_gal_params(&galParams)
         free(dustParams)
-        free(spectra.LyAbsorption)
         free_filters(&spectra)
         free(c_output)
 
@@ -1095,7 +1094,7 @@ cdef class calibration:
             # Read star formation rates and metallcities form galaxy merger trees
             read_gal_params(pGalParams, sfhList[iS])
             #
-            pSpectra.LyAbsorption = NULL
+            pSpectra.igm = 0
             # Read raw SED templates
             init_templates_raw(pSpectra, os.path.join(sedPath, "sed_library.hdf5"))
             # Generate filters

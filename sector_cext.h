@@ -81,7 +81,7 @@ struct sed_params {
     double *centreWaves;
     double *logWaves;
     // IGM absorption
-    double *LyAbsorption;
+    int igm;
     // Working templates
     int nAgeStep;
     double *ageStep;
@@ -117,4 +117,9 @@ void init_templates_special(struct sed_params *spectra, double tBC, int approx);
 void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams);
 void dust_absorption_approx(double *inBCFlux, double *outBCFlux,
                             struct sed_params *spectra, struct dust_params *dustParams);
+#endif
+
+#ifndef _IGM_
+void add_Lyman_absorption(double *target, double *waves, int nWaves, double z);
+void init_IGM_absorption(struct sed_params *spectra);
 #endif

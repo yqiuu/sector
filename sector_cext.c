@@ -235,7 +235,6 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
     int *nFilterWaves = spectra->nFilterWaves;
     double *filterWaves = spectra->filterWaves;
     double *pFilterWaves;
-    double *LyAbsorption = spectra->LyAbsorption;
 
     int inFlag = 0;
     int outFlag;
@@ -246,7 +245,6 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
     double *newWaves;
     double *newRaw;
     double *pNewRaw;
-    double *newAbsorption;
 
     // Find shrinked wavelength ranges
     printf("#***********************************************************\n");
@@ -305,14 +303,7 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
                 *pNewRaw++ = raw[(iZ*nWaves + wavesIndices[iW])*nAge + iA];
     spectra->raw = newRaw;
     free(raw);
-    // Construct new IGM absorption
-    if (LyAbsorption != NULL) {
-        newAbsorption = (double*)malloc(nNewWaves*sizeof(double));
-        for(iW = 0; iW < nNewWaves; ++iW)
-            newAbsorption[iW] = LyAbsorption[wavesIndices[iW]];
-        spectra->LyAbsorption = newAbsorption;
-        free(LyAbsorption);
-    }
+
     free(wavesIndices);
 }
 
@@ -414,6 +405,9 @@ void init_filters(struct sed_params *spectra,
             offset += nNewWaves;
         }
     }
+    else
+        //  -Disable IGM absorption if there is no observer-frame filter
+        spectra->igm = 0;
 
     spectra->nFlux = nFlux;
     spectra->nObs = nObs;
@@ -504,7 +498,6 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
 
     if (spectra->filters == NULL) {
         double z = spectra->z;
-        double *LyAbsorption = spectra->LyAbsorption;
 
         n = nZ*nAgeStep;
         refSpectra = malloc(nWaves*n*sizeof(double));
@@ -517,13 +510,6 @@ inline void init_templates_working(struct sed_params *spectra, struct csp *pHist
                 for(iW = 0; iW < nWaves; ++iW)
                    pData[iW] /= 1. + z;
             }
-            // Add IGM absorption
-            if (LyAbsorption != NULL)
-                for(i = 0; i < n; ++i) {
-                    pData = readyData + i*nWaves;
-                    for(iW = 0; iW < nWaves; ++iW)
-                        pData[iW] *= LyAbsorption[iW];
-                }
         }
         // Tranpose the templates such that the last dimension is the metallicity
         for(i = 0; i < n; ++i) {
@@ -624,6 +610,7 @@ void compute_spectra(double *target, struct sed_params *spectra,
     spectra->nAgeStep = galParams->nAgeStep;
     spectra->ageStep = galParams->ageStep;
     init_templates_integrated(spectra);
+    init_IGM_absorption(spectra);
 
     // Initialise templates for birth cloud if necessary
     if (dustParams == NULL) {
