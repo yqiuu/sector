@@ -1093,14 +1093,13 @@ cdef class calibration:
         for iS in xrange(nSnap):
             # Read star formation rates and metallcities form galaxy merger trees
             read_gal_params(pGalParams, sfhList[iS])
-            # Set redshift
-            pSpectra.z = pGalParams.z
             #
             pSpectra.LyAbsorption = NULL
-            # Generate filters
-            #init_filters(pSpectra, waves, nBeta, betaBands, [], 0.)
             # Read raw SED templates
             init_templates_raw(pSpectra, os.path.join(sedPath, "sed_library.hdf5"))
+            # Generate filters
+            generate_filters(pSpectra, "UV slope", [], [], pGalParams.z, False)
+            #
             shrink_templates_raw(pSpectra, pGalParams.ageStep[pGalParams.nAgeStep - 1])
             #
             pGalParams += 1
