@@ -334,7 +334,8 @@ void init_filters(struct sed_params *spectra,
     double *logWaves = malloc(nFlux*sizeof(double));
 
     // Initialise rest-frame filters and those that are related to the UV slope
-    for(iF = 0; iF < nBeta + nRest; ++iF) {
+    nRest += nBeta;
+    for(iF = 0; iF < nRest; ++iF) {
         if (iF == nBeta)
             pData = restBands;
         //   -Construct wavelengths for a new filter
@@ -368,7 +369,7 @@ void init_filters(struct sed_params *spectra,
                 *(filters + offset + iW) = 3.34e4*newWaves[iW]*norm;
         }
         offset += nNewWaves;
-        ////
+        //
         w = (lower + upper)/2.;
         centreWaves[iF] = w;
         logWaves[iF] = log(w);
@@ -376,7 +377,7 @@ void init_filters(struct sed_params *spectra,
 
     // Initialise observer-frame filters
     if (nObs > 0) {
-        memcpy(nFilterWaves + nBeta + nRest, nObsWaves, nObs*sizeof(int));
+        memcpy(nFilterWaves + nRest, nObsWaves, nObs*sizeof(int));
         nNewWaves = 0;
         for(iF = 0; iF < nObs; ++iF)
             nNewWaves += nObsWaves[iF];
@@ -392,13 +393,20 @@ void init_filters(struct sed_params *spectra,
                 printf("Filter wavelength range are beyond SED templates\n");
                 exit(0);
             }
-            //  -Divide the transmission by the wavelength to calculate the normalisation
+            //   -Divide the transmission by the wavelength to calculate the normalisation
             for(iW = 0; iW < nNewWaves; ++iW)
                 filters[offset + iW] /= filterWaves[offset + iW];
             norm = 1./trapz_table(filters + offset, filterWaves + offset, nNewWaves, lower, upper);
+            //   -Compute the pivot wavelength and transform it to the rest-frame
+            for(iW = 0; iW < nNewWaves; ++iW)
+                filters[offset + iW] *= filterWaves[offset + iW]*filterWaves[offset + iW];
+            w = sqrt(norm*trapz_table(filters + offset, filterWaves + offset,
+                                      nNewWaves, lower, upper))/(1. + z);
+            centreWaves[nRest + iF] = w;
+            logWaves[nRest + iF] = log(w);
             //  -Transform the filter such that it can give AB magnitude
             for(iW = 0; iW < nNewWaves; ++iW)
-                filters[offset + iW] *= 3.34e4*filterWaves[offset + iW]*filterWaves[offset + iW]*norm;
+                filters[offset + iW] *= 3.34e4*norm;
             //  -Transform the filter to the rest-frame
             for(iW = 0; iW < nNewWaves; ++iW)
                 filterWaves[offset + iW] /= 1. + z;
@@ -406,7 +414,7 @@ void init_filters(struct sed_params *spectra,
         }
     }
     else
-        //  -Disable IGM absorption if there is no observer-frame filter
+        //   -Disable IGM absorption if there is no observer-frame filter
         spectra->igm = 0;
 
     spectra->nFlux = nFlux;
