@@ -703,7 +703,8 @@ void compute_spectra(double *target, struct sed_params *spectra,
                 }
 
                 // Apply dust absorption
-                dust_absorption_approx(inBCFlux, outBCFlux, &omp_spectra, dustParams + iG);
+                dust_absorption_approx(inBCFlux, outBCFlux, omp_spectra.centreWaves, nFlux,
+                                       dustParams + iG);
 
                 for(iF = 0; iF < nFlux; ++iF)
                     pTarget[iF] += inBCFlux[iF] + outBCFlux[iF];
@@ -820,4 +821,3 @@ double *composite_spectra_cext(struct sed_params *spectra,
     #endif
     return output;
 }
-

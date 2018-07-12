@@ -172,13 +172,10 @@ void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams)
 }
 
 
-void dust_absorption_approx(double *inBCFlux, double *outBCFlux, 
-                            struct sed_params *spectra, struct dust_params *dustParams) {
+void dust_absorption_approx(double *inBCFlux, double *outBCFlux, double *centreWaves, int nFlux,
+                            struct dust_params *dustParams) {
     // Apply reddening directly on the flux in fitlers as an approximation
     int iF;
-    int nFlux = spectra->nFlux;
-    double *centreWaves = spectra->centreWaves;
-
     double tauUV_ISM = dustParams->tauUV_ISM;
     double nISM = dustParams->nISM;
     double tauUV_BC = dustParams->tauUV_BC;

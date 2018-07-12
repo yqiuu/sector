@@ -118,8 +118,8 @@ double *composite_spectra_cext(struct sed_params *spectra,
 int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep);
 void init_templates_special(struct sed_params *spectra, double tBC, int approx);
 void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams);
-void dust_absorption_approx(double *inBCFlux, double *outBCFlux,
-                            struct sed_params *spectra, struct dust_params *dustParams);
+void dust_absorption_approx(double *inBCFlux, double *outBCFlux, double *centreWaves, int nFlux,
+                            struct dust_params *dustParams);
 #endif
 
 #ifndef _IGM_
