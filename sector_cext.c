@@ -471,7 +471,7 @@ void init_templates_integrated(struct sed_params *spectra) {
 }
 
 
-inline void init_templates_working(struct sed_params *spectra, struct csp *pHistories,
+void init_templates_working(struct sed_params *spectra, struct csp *pHistories,
                                    struct dust_params *dustParams, int iG) {
     int *ageFlag = NULL;
     int *ZFlag = NULL;

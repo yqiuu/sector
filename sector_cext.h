@@ -106,6 +106,9 @@ void init_filters(struct sed_params *spectra,
                   double *betaBands, int nBeta, double *restBands, int nRest,
                   double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z);
 void shrink_templates_raw(struct sed_params *spectra, double maxAge);
+void init_templates_integrated(struct sed_params *spectra);
+void init_templates_working(struct sed_params *spectra, struct csp *pHistories,
+                            struct dust_params *dustParams, int iG);
 double *composite_spectra_cext(struct sed_params *spectra,
                                struct gal_params *galParams, struct dust_params *dustParams,
                                short outType, short approx, short nThread);
