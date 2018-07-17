@@ -452,6 +452,228 @@ def get_mean_star_formation_rate(sfhPath, double meanAge):
                      columns = ["MeanSFR"])
 
 
+cdef class stellar_population:
+    cdef:
+        gal_params *default
+        gal_params *modified
+        int nGal
+
+    def __cinit__(self, meraxes_output galData, snapshot, gals):
+        cdef gal_params *default = <gal_params*>malloc(sizeof(gal_params))
+
+        if type(gals) is str:
+            # Read SFHs from files
+            read_gal_params(default, gals)
+        else:
+            # Read SFHs from meraxes outputs
+            # Read redshift
+            default.z = meraxes.io.grab_redshift(galData.fname, snapshot)
+            # Read lookback time
+            default.nAgeStep = snapshot
+            timeStep = meraxes.io.read_snaplist(galData.fname, galData.h)[2]*1e6 # Convert Myr to yr
+            ageStep = np.zeros(snapshot, dtype = 'f8')
+            for iA in xrange(snapshot):
+                ageStep[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
+            default.ageStep = init_1d_double(ageStep)
+            # Store galaxy indices
+            gals = np.asarray(gals, dtype = 'i4')
+            default.nGal = len(gals)
+            default.indices = init_1d_int(gals)
+            # Read SFHs
+            default.histories = galData.trace_properties(snapshot, gals)
+
+        self.default = default
+        self.modified = NULL
+        self.nGal = default.nGal
+
+    
+    cdef free_modified(self, int mode):
+        if self.modified == NULL:
+            return
+
+        free(self.modified.ageStep)
+
+        cdef:
+            int iG
+            int nGal = self.nGal
+            csp *histories = self.modified.histories
+
+        for iG in xrange(nGal):
+            free(histories[iG].bursts)
+        free(histories)
+
+        if mode == 1:
+            free(self.modified)
+            self.modified = NULL
+
+
+    def __dealloc__(self):
+        cdef:
+            int iG
+            int nGal = self.nGal
+            gal_params *default = self.default
+            csp *histories = default.histories
+        for iG in xrange(nGal):
+            free(histories[iG].bursts)
+        free(default.histories)
+        free(default.ageStep)
+        free(default.indices)
+        free(default)
+        self.free_modified(1)
+
+
+    cdef gal_params *pointer(self):
+        if self.modified == NULL:
+            return self.default
+        else:
+            return self.modified
+
+
+    def reconstruct(self, timeGrid = 1):
+        if timeGrid == 0:
+            # Use the default population and free the modified version
+            self.free_modified(1)
+            return
+
+        cdef:
+            int iA, iB, iG
+            int nGal = self.nGal
+
+            gal_params *default = self.default
+            csp *dfHistories = default.histories
+            int nBurst
+            ssp *dfBursts
+
+            gal_params *modified = <gal_params*>malloc(sizeof(gal_params))
+            int nAgeStep = default.nAgeStep
+            double *ageStep = <double*>malloc(nAgeStep*sizeof(double))
+            csp *histories = <csp*>malloc(nGal*sizeof(csp))
+            ssp *bursts
+            double metals, sfr
+
+        # Initialise the modified population
+        memcpy(modified, default, sizeof(gal_params))
+        memcpy(ageStep, default.ageStep, nAgeStep*sizeof(double))
+
+        # Merge stellar population in the same snapshot
+        for iG in xrange(nGal):
+            nBurst = dfHistories[iG].nBurst
+            dfBursts = dfHistories[iG].bursts
+            bursts = <ssp*>malloc(nAgeStep*sizeof(ssp))
+            histories[iG].nBurst = nAgeStep
+            histories[iG].bursts = bursts
+            for iA in xrange(nAgeStep):
+                metals = 0.
+                sfr = 0.
+                for iB in xrange(nBurst):
+                    if dfBursts[iB].index == iA:
+                        metals += dfBursts[iB].metals*dfBursts[iB].sfr
+                        sfr += dfBursts[iB].sfr
+                bursts[iA].index = iA
+                if sfr == 0.:
+                    bursts[iA].metals = 0.
+                else:
+                    bursts[iA].metals = metals/sfr
+                bursts[iA].sfr = sfr
+
+        if timeGrid == 1:
+            self.free_modified(0)
+            modified.ageStep = ageStep
+            modified.histories = histories
+            self.modified = modified
+            return
+
+        # Smooth SFHs over given number of snapshots
+        cdef:
+            double[:] timeInterval = np.zeros(nAgeStep)
+
+        timeInterval[0] = ageStep[0]
+        for iA in xrange(1, nAgeStep):
+            timeInterval[iA] = ageStep[iA] - ageStep[iA - 1]
+
+        cdef:
+            int iS
+            int nSmooth = timeGrid
+            csp *specHistories = <csp*>malloc(nGal*sizeof(csp))
+            int nSpecBurst = nAgeStep/nSmooth
+            ssp *specBurst
+            double *specAgeStep
+            double dm, dt
+
+        if nAgeStep%nSmooth != 0:
+            nSpecBurst += 1
+        specAgeStep = <double*>malloc(nSpecBurst*sizeof(double))
+        print "nSpecBurst = %d, nSmooth = %d"%(nSpecBurst, nSmooth)
+
+        for iG in xrange(nGal):
+            bursts = histories[iG].bursts
+            specBursts = <ssp*>malloc(nSpecBurst*sizeof(ssp))
+            specHistories[iG].nBurst = nSpecBurst
+            specHistories[iG].bursts = specBursts
+            for iB in xrange(nSpecBurst):
+                metals, sfr, dt = 0., 0., 0.
+                for iS in xrange(nSmooth):
+                    iA = iB*nSmooth + iS
+                    if iA == nAgeStep:
+                        break
+                    dm = bursts[iA].sfr*timeInterval[iA]
+                    metals += bursts[iA].metals*dm
+                    sfr += dm
+                    dt += timeInterval[iA]
+                specBursts[iB].index = iB
+                if sfr == 0.:
+                    specBursts[iB].metals = 0
+                else:
+                    specBursts[iB].metals = metals/sfr
+                specBursts[iB].sfr = sfr/dt
+                if iB == 0:
+                    specAgeStep[iB] = dt
+                else:
+                    specAgeStep[iB] = specAgeStep[iB - 1] + dt
+ 
+        free(ageStep)
+        for iG in xrange(nGal):
+            free(histories[iG].bursts)
+        free(histories)
+
+        self.free_modified(0)
+        modified.nAgeStep = nSpecBurst
+        modified.ageStep = specAgeStep
+        modified.histories = specHistories
+        self.modified = modified
+
+
+    def __getitem__(self, int iG):
+        if iG >= self.nGal:
+            raise IndexError("%d exceeds the maximum number of galaxies"%iG)
+        elif iG < 0:
+            iG = self.nGal + iG
+    
+        cdef csp *histories
+        if self.modified == NULL:
+            histories = self.default.histories + iG
+        else:
+            histories = self.modified.histories + iG
+
+        cdef:
+            int iB
+            int nBurst = histories.nBurst
+            ssp *pBursts = histories.bursts
+
+        arr = np.zeros(nBurst, dtype = [('index', 'i4'), ('metallicity', 'f4'), ('sfr', 'f4')])
+        for iB in xrange(nBurst):
+            arr[iB] = pBursts.index, pBursts.metals, pBursts.sfr
+            pBursts += 1
+
+        return arr[np.argsort(arr["index"])]
+
+
+    def time_step(self):
+        if self.modified == NULL:
+            return np.array(<double[:self.default.nAgeStep]>self.default.ageStep)
+        else:
+            return np.array(<double[:self.modified.nAgeStep]>self.modified.ageStep)
+
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
@@ -848,6 +1070,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
                       dust = None, IGM = 'I2014', approx = False,
                       outType = 'ph',
                       betaBands = [], restBands = [[1600, 100],], obsBands = [], obsFrame = False,
+                      timeGrid = 0,
                       prefix = 'mags', outPath = './',
                       nThread = 1):
     """
@@ -953,7 +1176,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
     waves = get_wavelength(sedPath)
     cdef:
         sed_params spectra
-        gal_params galParams
+        gal_params *galParams
         double z
         int nGal
 
@@ -972,7 +1195,10 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
     for iS in xrange(nSnap):
         # Read star formation rates and metallcities form galaxy merger trees
-        read_star_formation_history(&galParams, galData, snapList[iS], gals[iS])
+        sfh = stellar_population(galData, snapList[iS], gals[iS])
+        if timeGrid != 0:
+            sfh.reconstruct(timeGrid)
+        galParams = sfh.pointer()
         z = galParams.z
         nGal = galParams.nGal
         # Convert the format of dust parameters
@@ -1005,7 +1231,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
             raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
         shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
         # Compute spectra
-        c_output = composite_spectra_cext(&spectra, &galParams, dustParams,
+        c_output = composite_spectra_cext(&spectra, galParams, dustParams,
                                          c_outType, <short>approx, nThread)
         # Save the output to a numpy array
         if outType == 'UV slope':
@@ -1047,7 +1273,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         if len(snapList) == 1:
             mags = DataFrame(deepcopy(output), index = indices, columns = columns)
 
-        free_gal_params(&galParams)
+        #free_gal_params(&galParams)
         free(dustParams)
         free_filters(&spectra)
         free(c_output)
