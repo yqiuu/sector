@@ -242,8 +242,8 @@ cdef class meraxes_output:
             pHistories.nBurst = nProg
             if nProg == 0:
                 pHistories.bursts = NULL
-                print "Warning: snapshot %d, index %d"%(tSnap, galIdx)
-                print "         the star formation rate is zero throughout the histroy"
+                #print "Warning: snapshot %d, index %d"%(tSnap, galIdx)
+                #print "         the star formation rate is zero throughout the histroy"
             else:
                 memSize = nProg*sizeof(ssp)
                 pHistories.bursts = <ssp*>malloc(memSize)
