@@ -218,22 +218,23 @@ cdef class meraxes_output:
             int nGal = indices.shape[0]
             csp *histories = <csp*>malloc(nGal*sizeof(csp))
             csp *pHistories
-            ssp bursts[MAX_NODE]
+            ssp *bursts = self.bursts
             int galIdx
             int nProg
             float sfr
             size_t memSize
             size_t totalMemSize = 0
         timing_start("# Read galaxies properties")
+        self.tSnap = tSnap
         for iG in xrange(nGal):
             galIdx = indices[iG]
             nProg = -1
             sfr = self.sfr[tSnap][galIdx]
             if sfr > 0.:
                 nProg += 1
-                bursts[nProg].index = 0
-                bursts[nProg].metals = self.metals[tSnap][galIdx]
-                bursts[nProg].sfr = sfr
+                bursts.index = 0
+                bursts.metals = self.metals[tSnap][galIdx]
+                bursts.sfr = sfr
             self.nBurst = nProg
             self.trace_progenitors(tSnap - 1, self.firstProgenitor[tSnap][galIdx])
             nProg = self.nBurst + 1
