@@ -5,10 +5,11 @@ from Cython.Distutils import build_ext
 #exts = cythonize([Extension("mag_calc", sources = ["mag_calc_cext.c", "mag_calc.pyx"])])
 
 exts = [Extension("magcalc", 
-                  sources = ["clib/tools.c", 
-                             "clib/sector.c", 
-                             "clib/dust.c", 
-                             "clib/igm.c", 
+                  sources = ["clib/tools.c",
+                             "clib/sector.c",
+                             "clib/spectra.c",
+                             "clib/dust.c",
+                             "clib/igm.c",
                              "magcalc.pyx"],
                   extra_compile_args=['-fopenmp', '-lhdf5', '-lhdf5_hl'], 
                   extra_link_args=['-fopenmp', '-lhdf5', '-lhdf5_hl'])]

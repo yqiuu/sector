@@ -89,6 +89,18 @@ double *composite_spectra_cext(struct sed_params *spectra,
                                short outType, short approx, short nThread);
 #endif
 
+#ifndef _SPECTRA_
+void init_templates_raw(struct sed_params *spectra, char *fName);
+void shrink_templates_raw(struct sed_params *spectra, double maxAge);
+void init_filters(struct sed_params *spectra,
+                  double *betaBands, int nBeta, double *restBands, int nRest,
+                  double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z);
+void init_templates_integrated(struct sed_params *spectra);
+void init_templates_working(struct sed_params *spectra, struct csp *pHistories,
+                                   struct dust_params *dustParams, int iG);
+#endif
+
+
 #ifndef _DUST_
 int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep);
 void init_templates_special(struct sed_params *spectra, double tBC, int approx);
