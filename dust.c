@@ -1,4 +1,5 @@
 #define _DUST_
+#include"tools.h"
 #include"sector_cext.h"
 
 int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
