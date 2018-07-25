@@ -73,7 +73,7 @@ def timing_end():
 # Functions to load galaxy properties                                           #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "clib/sector_cext.h":
+cdef extern from "clib/sector.h":
     struct ssp:
         short index
         float metals
@@ -618,7 +618,7 @@ def Lyman_absorption_Inoue(double[:] obsWaves, double z):
 # Functions about ISM absorptionb                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "clib/sector_cext.h":
+cdef extern from "clib/sector.h":
     struct dust_params:
         double tauUV_ISM
         double nISM
@@ -651,7 +651,7 @@ cdef dust_params *init_dust_parameters(dust):
 # Functions to read SED templates                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "clib/sector_cext.h":
+cdef extern from "clib/sector.h":
     struct sed_params:
         # Raw templates
         int minZ
@@ -698,7 +698,7 @@ cdef void free_raw_spectra(sed_params *spectra):
     free(spectra.raw)
 
 
-cdef extern from "clib/sector_cext.h":
+cdef extern from "clib/sector.h":
     void init_templates_raw(sed_params *spectra, char *fName)
 
     void shrink_templates_raw(sed_params *spectra, double maxAge)
@@ -752,7 +752,7 @@ def beta_filters():
     return windows
 
 
-cdef extern from "clib/sector_cext.h":
+cdef extern from "clib/sector.h":
     void init_filters(sed_params *spectra,
                       double *betaBands, int nBeta, double *restBands, int nRest,
                       double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z)
@@ -838,7 +838,7 @@ def get_output_name(prefix, postfix, snap, path):
     return os.path.join(path, fname)
 
 
-cdef extern from "clib/sector_cext.h" nogil:
+cdef extern from "clib/sector.h" nogil:
     double *composite_spectra_cext(sed_params *spectra,
                                    gal_params *galParams, dust_params *dustParams,
                                    short outType, short approx, short nThread)

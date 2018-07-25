@@ -1,6 +1,6 @@
 #define _SECTOR_
 #include"tools.h"
-#include"sector_cext.h"
+#include"sector.h"
 #include"hdf5.h"
 #include"hdf5_hl.h"
 

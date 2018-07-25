@@ -1,6 +1,6 @@
 #define _DUST_
 #include"tools.h"
-#include"sector_cext.h"
+#include"sector.h"
 
 int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
     if (tBC >= ageStep[nAgeStep - 1])

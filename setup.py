@@ -6,7 +6,7 @@ from Cython.Distutils import build_ext
 
 exts = [Extension("magcalc", 
                   sources = ["clib/tools.c", 
-                             "clib/sector_cext.c", 
+                             "clib/sector.c", 
                              "clib/dust.c", 
                              "clib/igm.c", 
                              "magcalc.pyx"],

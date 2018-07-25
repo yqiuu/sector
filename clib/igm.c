@@ -1,5 +1,5 @@
 #define _IGM_
-#include"sector_cext.h"
+#include"sector.h"
 
 #define NLYMAN 39 
 
