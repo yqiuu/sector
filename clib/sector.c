@@ -100,6 +100,139 @@
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *                                                                             *
+ * Galaxy formation model interface                                            *
+ *                                                                             *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+#ifdef CALC_MAGS
+void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
+                         double *LTTime, int *targetSnap, double *redshifts,
+                         double *restBands, int nRest, int nBeta, double tBC) {
+    // Initialise full templates
+    int iA, iS;
+    struct sed_params spectra[MAGS_N_SNAPS];
+    int nAgeStep;
+    double *ageStep;
+
+    for(iS = 0; iS < MAGS_N_SNAPS; ++iS) {
+        nAgeStep = targetSnap[iS];
+        //// Initialise raw templates
+        init_templates_raw(spectra + iS, fName);
+        //// Initialise filters
+        init_filters(spectra + iS, NULL, 0, restBands, nRest,
+                     NULL, NULL, NULL, 0, 1. + redshifts[iS]);
+        if (spectra[iS].nFlux != MAGS_N_BANDS) {
+            printf("MAGS_N_BANDS does not match!\n");
+            exit(EXIT_FAILURE);
+        }
+        //// Initialise time step
+        spectra[iS].nAgeStep = nAgeStep;
+        ageStep = (double*)malloc(nAgeStep*sizeof(double));
+        ////   -Should be in a unit of yr
+        for(int iA = 0; iA < nAgeStep; ++iA)
+            ageStep[iA] = LTTime[nAgeStep - iA - 1] - LTTime[nAgeStep];
+        spectra[iS].ageStep = ageStep;
+        ////   -This function may be omitted
+        shrink_templates_raw(spectra + iS, ageStep[nAgeStep - 1]);
+        ////   -Disable IGM absorption
+        spectra[iS].igm = 0;
+        //// Integrate templates over given time steps
+        init_templates_integrated(spectra + iS);
+        //// Initialise working templates
+        spectra[iS].ready = \
+        (double*)malloc(spectra[iS].nZ*nAgeStep*spectra[iS].nWaves*sizeof(double));
+        spectra[iS].working = \
+        (double*)malloc(spectra[iS].nMaxZ*nAgeStep*spectra[iS].nFlux*sizeof(double));
+        init_templates_working(spectra + iS, NULL, NULL, -1);
+        // Initialise special templates for birth cloud
+        init_templates_special(spectra + iS, tBC, 1);
+    }
+
+    // Initialise mini templates
+    int nSize = 0;
+    int nMaxZ = spectra->nMaxZ;
+    double *working;
+    size_t totalSize = 0;
+    int offsetWorking = 0;
+    int offsetInBC = 0;
+    int offsetOutBC = 0;
+    int offsetWaves = 0;
+
+    //// Compute size of working templates
+    for(iS = 0; iS < MAGS_N_SNAPS; ++iS)
+        totalSize += targetSnap[iS];
+    totalSize *= nMaxZ*MAGS_N_BANDS;
+    //// Compute size of special templates
+    totalSize += 2*MAGS_N_SNAPS*nMaxZ*MAGS_N_BANDS;
+    ///  Compute size of wavelengths
+    totalSize += 2*MAGS_N_BANDS;
+    totalSize *= sizeof(double);
+    ////
+    working = (double*)malloc(totalSize);
+    //// Copy working templates
+    for(iS = 0; iS < MAGS_N_SNAPS; ++iS) {
+        nSize = targetSnap[iS]*nMaxZ*MAGS_N_BANDS;
+        memcpy(working + offsetWorking, spectra[iS].working, nSize*sizeof(double));
+        offsetWorking += nSize;
+    }
+    //// Copy special templates
+    offsetInBC = offsetWorking;
+    for(iS = 0; iS < MAGS_N_SNAPS; ++iS) {
+        nSize = nMaxZ*MAGS_N_BANDS;
+        memcpy(working + offsetInBC, spectra[iS].inBC, nSize*sizeof(double));
+        offsetInBC += nSize;
+    }
+    offsetOutBC = offsetInBC;
+    for(iS = 0; iS < MAGS_N_SNAPS; ++iS) {
+        nSize = nMaxZ*MAGS_N_BANDS;
+        memcpy(working + offsetOutBC, spectra[iS].outBC, nSize*sizeof(double));
+        offsetOutBC += nSize;
+    }
+    //// Copy wavelengths (same at each target snapshot)
+    offsetWaves = offsetOutBC;
+    memcpy(working + offsetWaves, spectra->centreWaves, MAGS_N_BANDS*sizeof(double));
+    offsetWaves += MAGS_N_BANDS;
+    memcpy(working + offsetWaves, spectra->logWaves, MAGS_N_BANDS*sizeof(double));
+    ////
+    miniSpectra->iS = 0;
+    memcpy(miniSpectra->targetSnap, targetSnap, MAGS_N_SNAPS*sizeof(int));
+    miniSpectra->nBeta = 0;
+    miniSpectra->minZ = spectra->minZ;
+    miniSpectra->maxZ = spectra->maxZ;
+    miniSpectra->nMaxZ = nMaxZ;
+    ////   -Find the interval for birth cloud
+    for(iS = 0; iS < MAGS_N_SNAPS; ++iS)
+        miniSpectra->iAgeBC[iS] = \
+        birth_cloud_interval(tBC, spectra[iS].ageStep, spectra[iS].nAgeStep);
+    miniSpectra->totalSize = totalSize;
+    miniSpectra->working = working;
+    miniSpectra->inBC = working + offsetWorking;
+    miniSpectra->outBC = working + offsetInBC;
+    miniSpectra->centreWaves = working + offsetOutBC;
+    miniSpectra->logWaves = working + offsetWaves;
+
+    // Free full templates
+    for(iS = 0; iS < MAGS_N_SNAPS; ++iS) {
+        free(spectra[iS].Z);
+        free(spectra[iS].waves);
+        free(spectra[iS].age);
+        free(spectra[iS].raw);
+        free(spectra[iS].nFilterWaves);
+        free(spectra[iS].filterWaves);
+        free(spectra[iS].filters);
+        free(spectra[iS].integrated);
+        free(spectra[iS].ready);
+        free(spectra[iS].working);
+        free(spectra[iS].inBC);
+        free(spectra[iS].outBC);
+        free(spectra[iS].centreWaves);
+        free(spectra[iS].logWaves);
+    }
+}
+#endif
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *                                                                             *
  * Galaxy properites related                                                   *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */

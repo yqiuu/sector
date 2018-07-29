@@ -33,6 +33,24 @@ struct gal_params {
  * SEDs and dust related                                                       *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+#ifdef CALC_MAGS
+typedef struct mini_sed_params_t {
+    int iS;
+    int targetSnap[MAGS_N_SNAPS];
+    int nBeta;
+    int minZ;
+    int maxZ;
+    int nMaxZ;
+    int iAgeBC[MAGS_N_SNAPS];
+    size_t totalSize;
+    double *working;
+    double *inBC;
+    double *outBC;
+    double *centreWaves;
+    double *logWaves;
+} mini_sed_params_t;
+#endif
+
 struct sed_params {
     // Raw templates
     int minZ;
@@ -76,6 +94,12 @@ struct dust_params {
 };
 
 #ifndef _SECTOR_
+#ifdef CALC_MAGS
+void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
+                         double *LTTime, int *targetSnaps, double *redshifts,
+                         double *restBands, int nRest, int nBeta, double tBC);
+#endif
+
 void init_templates_raw(struct sed_params *spectra, char *fName);
 void init_filters(struct sed_params *spectra,
                   double *betaBands, int nBeta, double *restBands, int nRest,
