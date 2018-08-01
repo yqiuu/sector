@@ -193,7 +193,6 @@ void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
     offsetWaves += MAGS_N_BANDS;
     memcpy(working + offsetWaves, spectra->logWaves, MAGS_N_BANDS*sizeof(double));
     ////
-    miniSpectra->iS = 0;
     memcpy(miniSpectra->targetSnap, targetSnap, MAGS_N_SNAPS*sizeof(int));
     miniSpectra->nBeta = 0;
     miniSpectra->minZ = spectra->minZ;
@@ -227,6 +226,91 @@ void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
         free(spectra[iS].centreWaves);
         free(spectra[iS].logWaves);
     }
+}
+
+
+void init_luminosities(double *inBCFlux, double *outBCFlux) {
+    int iSF;
+    int nSF = MAGS_N_SNAPS*MAGS_N_BANDS;
+
+    for(iSF = 0; iSF < nSF; ++iSF) {
+        inBCFlux[iSF] = TOL;
+        outBCFlux[iSF] = TOL;
+    }
+}
+
+
+void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *spectra,
+                      int snapshot, double metals, double sfr) {
+    /* Add luminosities when there is a burst
+     *   -SFRs should be in a unit of M_solar/yr. However, one can convert the unit on
+     *    final results rather than here in order to achieve better performance */
+
+    // Compute integer metallicity
+    int Z = (int)(metals*1000 - .5);
+    if (Z < spectra->minZ)
+        Z = spectra->minZ;
+    else if (Z > spectra->maxZ)
+        Z = spectra->maxZ;
+
+    // Add luminosities
+    int iA, iF, iS, iAgeBC;
+    int offset;
+    int nAgeStep;
+    int nZF = spectra->nMaxZ*MAGS_N_BANDS;
+    double *pWorking = spectra->working;
+    double *pInBC = spectra->inBC;
+    double *pOutBC = spectra->outBC;
+
+    for(iS = 0; iS < MAGS_N_SNAPS; ++iS) {
+        nAgeStep = spectra->targetSnap[iS];
+        iA = nAgeStep - snapshot;
+        if(iA < 0)
+            continue;
+        iAgeBC = spectra->iAgeBC[iS];
+        if (iA > iAgeBC) {
+            offset = (Z*nAgeStep + iA)*MAGS_N_BANDS;
+            for(iF = 0; iF < MAGS_N_BANDS; ++iF)
+                pOutBCFlux[iF] += sfr*pWorking[offset + iF];
+        }
+        else if (iA == iAgeBC) {
+            offset = Z*MAGS_N_BANDS;
+            for(iF = 0; iF < MAGS_N_BANDS; ++iF) {
+                pInBCFlux[iF] += sfr*pInBC[offset + iF];
+                pOutBCFlux[iF] += sfr*pOutBC[offset + iF];
+            }
+        }
+        else {
+            offset = (Z*nAgeStep + iA)*MAGS_N_BANDS;
+            for(iF = 0; iF < MAGS_N_BANDS; ++iF)
+                pInBCFlux[iF] += sfr*pWorking[offset + iF];
+        }
+        pWorking += nAgeStep*nZF;
+        pInBC += nZF;
+        pOutBC += nZF;
+        pInBCFlux += MAGS_N_BANDS;
+        pOutBCFlux += MAGS_N_BANDS;
+    }
+}
+
+
+void merge_luminosities(double *inBCFluxTgt, double *outBCFluxTgt,
+                        double *inBCFlux, double *outBCFlux) {
+    int iSF;
+    int nSF = MAGS_N_SNAPS*MAGS_N_BANDS;
+
+    for(iSF = 0; iSF < nSF; ++iSF) {
+        inBCFluxTgt[iSF] += inBCFlux[iSF];
+        outBCFluxTgt[iSF] += outBCFlux[iSF];
+    }
+}
+
+
+void get_magnitudes(double *mags, double *inBCFlux, double *outBCFlux) {
+    /* Get magnitudes for only one snapshot */
+    int iF;
+    for(iF = 0; iF < MAGS_N_BANDS; ++iF)
+        mags[iF] = M_AB(inBCFlux[iF] + outBCFlux[iF]);
 }
 #endif
 

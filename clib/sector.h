@@ -35,7 +35,6 @@ struct gal_params {
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #ifdef CALC_MAGS
 typedef struct mini_sed_params_t {
-    int iS;
     int targetSnap[MAGS_N_SNAPS];
     int nBeta;
     int minZ;
@@ -98,6 +97,12 @@ struct dust_params {
 void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
                          double *LTTime, int *targetSnaps, double *redshifts,
                          double *restBands, int nRest, int nBeta, double tBC);
+void init_luminosities(double *inBCFlux, double *outBCFlux);
+void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *spectra,
+                      int snapshot, double metals, double sfr);
+void merge_luminosities(double *inBCFluxTgt, double *outBCFluxTgt,
+                        double *inBCFlux, double *outBCFlux);
+void get_magnitudes(double *mags, double *inBCFlux, double *outBCFlux);
 #endif
 
 void init_templates_raw(struct sed_params *spectra, char *fName);
