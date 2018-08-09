@@ -240,6 +240,8 @@ void init_luminosities(double *inBCFlux, double *outBCFlux) {
 }
 
 
+static int snap = 0;
+
 void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *spectra,
                       int snapshot, double metals, double sfr) {
     /* Add luminosities when there is a burst
@@ -265,25 +267,25 @@ void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *
     for(iS = 0; iS < MAGS_N_SNAPS; ++iS) {
         nAgeStep = spectra->targetSnap[iS];
         iA = nAgeStep - snapshot;
-        if(iA < 0)
-            continue;
-        iAgeBC = spectra->iAgeBC[iS];
-        if (iA > iAgeBC) {
-            offset = (Z*nAgeStep + iA)*MAGS_N_BANDS;
-            for(iF = 0; iF < MAGS_N_BANDS; ++iF)
-                pOutBCFlux[iF] += sfr*pWorking[offset + iF];
-        }
-        else if (iA == iAgeBC) {
-            offset = Z*MAGS_N_BANDS;
-            for(iF = 0; iF < MAGS_N_BANDS; ++iF) {
-                pInBCFlux[iF] += sfr*pInBC[offset + iF];
-                pOutBCFlux[iF] += sfr*pOutBC[offset + iF];
+        if(iA >= 0) {
+            iAgeBC = spectra->iAgeBC[iS];
+            if (iA > iAgeBC) {
+                offset = (Z*nAgeStep + iA)*MAGS_N_BANDS;
+                for(iF = 0; iF < MAGS_N_BANDS; ++iF)
+                    pOutBCFlux[iF] += sfr*pWorking[offset + iF];
             }
-        }
-        else {
-            offset = (Z*nAgeStep + iA)*MAGS_N_BANDS;
-            for(iF = 0; iF < MAGS_N_BANDS; ++iF)
-                pInBCFlux[iF] += sfr*pWorking[offset + iF];
+            else if (iA == iAgeBC) {
+                offset = Z*MAGS_N_BANDS;
+                for(iF = 0; iF < MAGS_N_BANDS; ++iF) {
+                    pInBCFlux[iF] += sfr*pInBC[offset + iF];
+                    pOutBCFlux[iF] += sfr*pOutBC[offset + iF];
+                }
+            }
+            else {
+                offset = (Z*nAgeStep + iA)*MAGS_N_BANDS;
+                for(iF = 0; iF < MAGS_N_BANDS; ++iF)
+                    pInBCFlux[iF] += sfr*pWorking[offset + iF];
+            }
         }
         pWorking += nAgeStep*nZF;
         pInBC += nZF;
@@ -291,6 +293,7 @@ void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *
         pInBCFlux += MAGS_N_BANDS;
         pOutBCFlux += MAGS_N_BANDS;
     }
+    snap = snapshot;
 }
 
 
