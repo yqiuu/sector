@@ -1172,7 +1172,7 @@ cdef class calibration:
         short approx
         short nThread
 
-    def __cinit__(self, sfhList, sedPath, betaBands, approx = False, nThread = 1):
+    def __cinit__(self, sfhList, sedPath, betaBands = [], approx = False, nThread = 1):
         cdef:
             int iS
             int nSnap = len(sfhList)
@@ -1185,10 +1185,6 @@ cdef class calibration:
         self.spectra = <sed_params*>malloc(nSnap*sizeof(sed_params))
         self.approx = <short>approx
         self.nThread = <short>nThread
-
-        waves = get_wavelength(sedPath)
-        betaBands = beta_filters()
-        nBeta = len(betaBands) - 1
 
         pGalParams = self.galParams
         pSpectra = self.spectra
