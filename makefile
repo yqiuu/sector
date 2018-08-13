@@ -6,4 +6,5 @@ magcalc.so: magcalc.pyx
 
 clean:
 	rm -rf build
+	rm -rf *.egg-info
 	rm *.so
