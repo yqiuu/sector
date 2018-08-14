@@ -334,31 +334,6 @@ cdef void read_gal_params(gal_params *galParams, char *fname):
     timing_end()
 
 
-cdef void *read_star_formation_history(gal_params *galParams, meraxes_output galData,
-                                       snapshot, gals):
-    if type(gals) is str:
-        # Read SFHs from files
-        read_gal_params(galParams, gals)
-    else:
-        # Read SFHs from meraxes outputs
-        # Read redshift
-        galParams.z = meraxes.io.grab_redshift(galData.fname, snapshot)
-        # Read lookback time
-        galParams.nAgeStep = snapshot
-        timeStep = meraxes.io.read_snaplist(galData.fname, galData.h)[2]*1e6 # Convert Myr to yr
-        ageStep = np.zeros(snapshot, dtype = 'f8')
-        for iA in xrange(snapshot):
-            ageStep[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
-        galParams.ageStep = init_1d_double(ageStep)
-        # Store galaxy indices
-        gals = np.asarray(gals, dtype = 'i4')
-        galParams.nGal = len(gals)
-        galParams.indices = init_1d_int(gals)
-        # Read SFHs
-        galParams.histories = galData.trace_properties(snapshot, gals)
-    return galParams
-
-
 def save_star_formation_history(fname, snapList, idxList, h,
                                 prefix = 'sfh', outPath = './'):
     """
@@ -384,7 +359,7 @@ def save_star_formation_history(fname, snapList, idxList, h,
     cdef:
         int iS, nSnap
         int snap, snapMax, snapMin
-        gal_params galParams
+        stellar_population sfh
 
     if isscalar(snapList):
         snapMax = snapList
@@ -397,9 +372,8 @@ def save_star_formation_history(fname, snapList, idxList, h,
     cdef meraxes_output galData = meraxes_output(fname, snapMax, h)
     # Read and save galaxy merge trees
     for iS in xrange(nSnap):
-        #read_star_formation_history(&galParams, galData, snapList[iS], idxList[iS])
-        save_gal_params(&galParams, get_output_name(prefix, '.bin', snapList[iS], outPath))
-        free_gal_params(&galParams)
+        sfh = stellar_population(galData, snapList[iS], idxList[iS])
+        save_gal_params(sfh.default, get_output_name(prefix, '.bin', snapList[iS], outPath))
 
 
 def get_mean_star_formation_rate(sfhPath, double meanAge):
