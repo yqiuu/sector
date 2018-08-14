@@ -299,9 +299,6 @@ void init_filters(struct sed_params *spectra,
 
 
 void init_templates_integrated(struct sed_params *spectra) {
-    #ifdef TIMING
-        profiler_start("Integration over time", INTEGRATION);
-    #endif
     int iA, iW, iZ;
     double *pData;
 
@@ -333,9 +330,6 @@ void init_templates_integrated(struct sed_params *spectra) {
             }
         }
     spectra->integrated = intData;
-    #ifdef TIMING
-        profiler_end(INTEGRATION);
-    #endif
 }
 
 
