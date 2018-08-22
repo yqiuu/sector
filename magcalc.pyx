@@ -1145,6 +1145,7 @@ cdef class calibration:
         sed_params *spectra
         short approx
         short nThread
+        tuple args
 
     def __cinit__(self, sfhList, sedPath, betaBands = [], approx = False, nThread = 1):
         cdef:
@@ -1159,6 +1160,7 @@ cdef class calibration:
         self.spectra = <sed_params*>malloc(nSnap*sizeof(sed_params))
         self.approx = <short>approx
         self.nThread = <short>nThread
+        self.args = (sfhList, sedPath, betaBands, approx, nThread)
 
         pGalParams = self.galParams
         pSpectra = self.spectra
@@ -1195,6 +1197,10 @@ cdef class calibration:
 
         free(self.galParams)
         free(self.spectra)
+
+
+    def __reduce__(self):
+        return (rebuild_calibration, self.args)
 
 
     def run(self, dust):
@@ -1238,6 +1244,10 @@ cdef class calibration:
             pGalParams += 1
             pSpectra += 1
         return M1600, beta
+
+
+def rebuild_calibration(sfhList, sedPath, betaBands, approx, nThread):
+    return calibration(sfhList, sedPath, betaBands, approx, nThread)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
