@@ -240,8 +240,6 @@ void init_luminosities(double *inBCFlux, double *outBCFlux) {
 }
 
 
-static int snap = 0;
-
 void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *spectra,
                       int snapshot, double metals, double sfr) {
     /* Add luminosities when there is a burst
@@ -293,7 +291,6 @@ void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *
         pInBCFlux += MAGS_N_BANDS;
         pOutBCFlux += MAGS_N_BANDS;
     }
-    snap = snapshot;
 }
 
 
