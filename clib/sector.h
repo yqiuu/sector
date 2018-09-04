@@ -111,5 +111,6 @@ void dust_absorption_approx(double *inBCFlux, double *outBCFlux, double *centreW
 
 #ifndef _IGM_
 void add_Lyman_absorption(double *target, double *waves, int nWaves, double z);
-void init_IGM_absorption(struct sed_params *spectra);
+void add_IGM_absorption_filters(struct sed_params *spectra);
+void add_IGM_absorption_spectra(struct sed_params *spectra, double *pData, int nGal);
 #endif

@@ -120,48 +120,19 @@ void add_Lyman_absorption(double *target, double *waves, int nWaves, double z) {
 }
 
 
-void init_IGM_absorption(struct sed_params *spectra) {
-    // Add IGM absorption to integrated templates or filters
-    //   -This function should be called after ``init_templates_integrated``
-    if (spectra->igm == 0)
-        return;
- 
-    int iW, nWaves;
-    double *obsWaves;
-    double z = spectra->z;
-
-    if (spectra->filters == NULL) {
+void add_IGM_absorption_filters(struct sed_params *spectra) {
+    if (spectra->igm > 0 && spectra->nObs > 0) {
         // Initialise observed wavelengths
-        double *waves = spectra->waves;
-
-        nWaves = spectra->nWaves;
-        obsWaves = malloc(nWaves*sizeof(double));
-        for(iW = 0; iW < nWaves; ++iW)
-            obsWaves[iW] = waves[iW]*(1. + z);
-
-        //
-        int iZA;
-        int nZA = spectra->nZ*spectra->nAgeStep;
-        double *pData = spectra->integrated;
-
-        for(iZA = 0; iZA < nZA; ++iZA) {
-            add_Lyman_absorption(pData, obsWaves, nWaves, z);
-            pData += nWaves;
-        }
-
-        free(obsWaves);
-    }
-    else {
-        // Initialise observed wavelengths
-        int iF;
+        int iF, iW;
+        double z = spectra->z;
         int nFlux = spectra->nFlux;
         int nRest = nFlux - spectra->nObs;
         int *nFilterWaves = spectra->nFilterWaves;
         double *filterWaves = spectra->filterWaves;
-        double *filters = spectra->filters;
         int offset = 0;
+        int nWaves = 0;
+        double *obsWaves;
 
-        nWaves = 0;
         for(iF = 0; iF < nFlux; ++iF) {
             if (iF < nRest)
                 offset += nFilterWaves[iF];
@@ -171,10 +142,38 @@ void init_IGM_absorption(struct sed_params *spectra) {
         obsWaves = (double*)malloc(nWaves*sizeof(double));
         for(iW = 0; iW < nWaves; ++iW)
             obsWaves[iW] = filterWaves[offset + iW]*(1. + z);
-
-        //
-        add_Lyman_absorption(filters + offset, obsWaves, nWaves, z);
+        // Add Lyman absorption to filters
+        add_Lyman_absorption(spectra->filters + offset, obsWaves, nWaves, z);
 
         free(obsWaves);
+    }
+}
+
+
+void add_IGM_absorption_spectra(struct sed_params *spectra, double *pData, int nGal) {
+    if (spectra->igm > 0 && spectra->nObs > 0 && spectra->filters == NULL) {
+        // Compute the transmission of Lyman absorption
+        int iW;
+        int nWaves = spectra->nWaves;
+        double *waves = spectra->waves;
+        double *obsWaves = malloc(nWaves*sizeof(double));
+        double *trans = malloc(nWaves*sizeof(double));
+        double z = spectra->z;
+
+        for(iW = 0; iW < nWaves; ++iW) {
+            obsWaves[iW] = waves[iW]*(1. + z);
+            trans[iW] = 1.;
+        }
+        add_Lyman_absorption(trans, obsWaves, nWaves, z);
+        // Apply the transmission to galaxies
+        int iG;
+        for(iG = 0; iG < nGal; ++iG) {
+            for(iW = 0; iW < nWaves; ++iW)
+                pData[iW] *= trans[iW];
+            pData += nWaves;
+        }
+
+        free(obsWaves);
+        free(trans);
     }
 }

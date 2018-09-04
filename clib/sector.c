@@ -173,7 +173,6 @@ void compute_spectra(double *target, struct sed_params *spectra,
     spectra->nAgeStep = galParams->nAgeStep;
     spectra->ageStep = galParams->ageStep;
     init_templates_integrated(spectra);
-    init_IGM_absorption(spectra);
 
     // Initialise templates for birth cloud if necessary
     if (dustParams == NULL) {
@@ -304,6 +303,10 @@ void compute_spectra(double *target, struct sed_params *spectra,
         free(workingData);
     }
     free(spectra->integrated);
+
+    // Add Lyman absorption to full spectra if applicable
+    add_IGM_absorption_spectra(spectra, target, galParams->nGal);
+
     #ifdef TIMING
         profiler_end(SUM);
     #endif

@@ -243,6 +243,7 @@ void init_filters(struct sed_params *spectra,
         centreWaves[iF] = w;
         logWaves[iF] = log(w);
     }
+    free(newWaves);
 
     // Initialise observer-frame filters
     if (nObs > 0) {
@@ -285,7 +286,7 @@ void init_filters(struct sed_params *spectra,
     else
         //   -Disable IGM absorption if there is no observer-frame filter
         spectra->igm = 0;
-
+    // Set properties
     spectra->nFlux = nFlux;
     spectra->nObs = nObs;
     spectra->nFilterWaves = nFilterWaves;
@@ -293,8 +294,8 @@ void init_filters(struct sed_params *spectra,
     spectra->filters = filters;
     spectra->centreWaves = centreWaves;
     spectra->logWaves = logWaves;
-
-    free(newWaves);
+    // Add Lyman absorption
+    add_IGM_absorption_filters(spectra);
 }
 
 
