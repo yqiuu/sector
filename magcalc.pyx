@@ -105,7 +105,7 @@ cdef void free_gal_params(gal_params *galParams):
 
 DEF MAX_NODE = 100000
 
-cdef class meraxes_output:
+cdef class galaxy_tree_meraxes:
     cdef:
         object fname
         double h
@@ -369,7 +369,7 @@ def save_star_formation_history(fname, snapList, idxList, h,
     else:
         snapMax = max(snapList)
         nSnap = len(snapList)
-    cdef meraxes_output galData = meraxes_output(fname, snapMax, h)
+    cdef galaxy_tree_meraxes galData = galaxy_tree_meraxes(fname, snapMax, h)
     # Read and save galaxy merge trees
     for iS in xrange(nSnap):
         sfh = stellar_population(galData, snapList[iS], idxList[iS])
@@ -432,7 +432,7 @@ cdef class stellar_population:
         gal_params *modified
         int nGal
 
-    def __cinit__(self, meraxes_output galData, snapshot, gals):
+    def __cinit__(self, galaxy_tree_meraxes galData, snapshot, gals):
         cdef gal_params *default = <gal_params*>malloc(sizeof(gal_params))
 
         if type(gals) is str:
@@ -1007,7 +1007,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         int nSnap
         int sanpMin = 1
         int snapMax
-        meraxes_output galData = None
+        galaxy_tree_meraxes galData = None
 
     if isscalar(snapList):
         snapMax = snapList
@@ -1020,7 +1020,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
     # If SFHs are not from files, load outputs from meraxes.
     if type(gals[0]) is not str:
-        galData = meraxes_output(fname, snapMax, h)
+        galData = galaxy_tree_meraxes(fname, snapMax, h)
 
     waves = get_wavelength(sedPath)
     cdef:
