@@ -106,7 +106,8 @@
 #ifdef CALC_MAGS
 void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
                          double *LTTime, int *targetSnap, double *redshifts,
-                         double *restBands, int nRest, int nBeta, double tBC) {
+                         double *betaBands, int nBeta, double *restBands, int nRest,
+                         double tBC) {
     // Initialise full templates
     int iA, iS;
     struct sed_params spectra[MAGS_N_SNAPS];
@@ -118,7 +119,7 @@ void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
         //// Initialise raw templates
         init_templates_raw(spectra + iS, fName);
         //// Initialise filters
-        init_filters(spectra + iS, NULL, 0, restBands, nRest,
+        init_filters(spectra + iS, betaBands, nBeta, restBands, nRest,
                      NULL, NULL, NULL, 0, 1. + redshifts[iS]);
         if (spectra[iS].nFlux != MAGS_N_BANDS) {
             printf("MAGS_N_BANDS does not match!\n");
@@ -194,7 +195,7 @@ void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
     memcpy(working + offsetWaves, spectra->logWaves, MAGS_N_BANDS*sizeof(double));
     ////
     memcpy(miniSpectra->targetSnap, targetSnap, MAGS_N_SNAPS*sizeof(int));
-    miniSpectra->nBeta = 0;
+    miniSpectra->nBeta = nBeta;
     miniSpectra->minZ = spectra->minZ;
     miniSpectra->maxZ = spectra->maxZ;
     miniSpectra->nMaxZ = nMaxZ;

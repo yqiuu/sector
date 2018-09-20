@@ -96,7 +96,8 @@ struct dust_params {
 #ifdef CALC_MAGS
 void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
                          double *LTTime, int *targetSnaps, double *redshifts,
-                         double *restBands, int nRest, int nBeta, double tBC);
+                         double *betaBands, int nBeta, double *restBands, int nRest,
+                         double tBC);
 void init_luminosities(double *inBCFlux, double *outBCFlux);
 void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *spectra,
                       int snapshot, double metals, double sfr);
