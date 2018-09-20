@@ -99,7 +99,7 @@ void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
                          double *betaBands, int nBeta, double *restBands, int nRest,
                          double tBC);
 void init_luminosities(double *inBCFlux, double *outBCFlux);
-void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *spectra,
+void add_luminosities(mini_sed_params_t *miniSpectra, double *pInBCFlux, double *pOutBCFlux,
                       int snapshot, double metals, double sfr);
 void merge_luminosities(double *inBCFluxTgt, double *outBCFluxTgt,
                         double *inBCFlux, double *outBCFlux);

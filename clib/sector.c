@@ -241,7 +241,7 @@ void init_luminosities(double *inBCFlux, double *outBCFlux) {
 }
 
 
-void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *spectra,
+void add_luminosities(mini_sed_params_t *miniSpectra, double *pInBCFlux, double *pOutBCFlux,
                       int snapshot, double metals, double sfr) {
     /* Add luminosities when there is a burst
      *   -SFRs should be in a unit of M_solar/yr. However, one can convert the unit on
@@ -249,25 +249,25 @@ void add_luminosities(double *pInBCFlux, double *pOutBCFlux, mini_sed_params_t *
 
     // Compute integer metallicity
     int Z = (int)(metals*1000 - .5);
-    if (Z < spectra->minZ)
-        Z = spectra->minZ;
-    else if (Z > spectra->maxZ)
-        Z = spectra->maxZ;
+    if (Z < miniSpectra->minZ)
+        Z = miniSpectra->minZ;
+    else if (Z > miniSpectra->maxZ)
+        Z = miniSpectra->maxZ;
 
     // Add luminosities
     int iA, iF, iS, iAgeBC;
     int offset;
     int nAgeStep;
-    int nZF = spectra->nMaxZ*MAGS_N_BANDS;
-    double *pWorking = spectra->working;
-    double *pInBC = spectra->inBC;
-    double *pOutBC = spectra->outBC;
+    int nZF = miniSpectra->nMaxZ*MAGS_N_BANDS;
+    double *pWorking = miniSpectra->working;
+    double *pInBC = miniSpectra->inBC;
+    double *pOutBC = miniSpectra->outBC;
 
     for(iS = 0; iS < MAGS_N_SNAPS; ++iS) {
-        nAgeStep = spectra->targetSnap[iS];
+        nAgeStep = miniSpectra->targetSnap[iS];
         iA = nAgeStep - snapshot;
         if(iA >= 0) {
-            iAgeBC = spectra->iAgeBC[iS];
+            iAgeBC = miniSpectra->iAgeBC[iS];
             if (iA > iAgeBC) {
                 offset = (Z*nAgeStep + iA)*MAGS_N_BANDS;
                 for(iF = 0; iF < MAGS_N_BANDS; ++iF)
