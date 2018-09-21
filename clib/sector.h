@@ -33,23 +33,6 @@ struct gal_params {
  * SEDs and dust related                                                       *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#ifdef CALC_MAGS
-typedef struct mini_sed_params_t {
-    int targetSnap[MAGS_N_SNAPS];
-    int nBeta;
-    int minZ;
-    int maxZ;
-    int nMaxZ;
-    int iAgeBC[MAGS_N_SNAPS];
-    size_t totalSize;
-    double *working;
-    double *inBC;
-    double *outBC;
-    double *centreWaves;
-    double *logWaves;
-} mini_sed_params_t;
-#endif
-
 struct sed_params {
     // Raw templates
     int minZ;
@@ -93,19 +76,6 @@ struct dust_params {
 };
 
 #ifndef _SECTOR_
-#ifdef CALC_MAGS
-void init_templates_mini(mini_sed_params_t *miniSpectra, char *fName,
-                         double *LTTime, int *targetSnaps, double *redshifts,
-                         double *betaBands, int nBeta, double *restBands, int nRest,
-                         double tBC);
-void init_luminosities(double *inBCFlux, double *outBCFlux);
-void add_luminosities(mini_sed_params_t *miniSpectra, double *pInBCFlux, double *pOutBCFlux,
-                      int snapshot, double metals, double sfr);
-void merge_luminosities(double *inBCFluxTgt, double *outBCFluxTgt,
-                        double *inBCFlux, double *outBCFlux);
-void get_magnitudes(double *mags, double *inBCFlux, double *outBCFlux);
-#endif
-
 void init_templates_raw(struct sed_params *spectra, char *fName);
 void init_filters(struct sed_params *spectra,
                   double *betaBands, int nBeta, double *restBands, int nRest,
