@@ -1,6 +1,6 @@
 # project specific
 .tags
-magcalc.c
+sector/sector.c
 .nfs*
 
 # Byte-compiled / optimized / DLL files

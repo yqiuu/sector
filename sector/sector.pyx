@@ -18,6 +18,22 @@ from astropy.cosmology import FlatLambdaCDM
 from astropy import units as u
 from dragons import meraxes
 
+
+__all__ = ['galaxy_tree_meraxes',
+           'stellar_population',
+           'save_star_formation_history',
+           'get_mean_star_formation_rate',
+           'Lyman_absorption',
+           'get_wavelength',
+           'HST_filters',
+           'beta_filters',
+           'composite_spectra',
+           'calibration',
+           'dust_extinction',
+           'reddening_curve',
+           'reddening']
+
+
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
 # Basic functions                                                               #
@@ -73,25 +89,6 @@ def timing_end():
 # Functions to load galaxy properties                                           #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "clib/sector.h":
-    struct ssp:
-        short index
-        float metals
-        float sfr
-
-    struct csp:
-        ssp *bursts
-        int nBurst
-
-    struct gal_params:
-        double z
-        int nAgeStep
-        double *ageStep
-        int nGal
-        int *indices
-        csp *histories
-
-
 cdef void free_gal_params(gal_params *galParams):
     cdef:
         int iG
@@ -654,10 +651,6 @@ cdef class stellar_population:
 # Functions to compute the IGM absorption                                       #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "clib/sector.h":
-    void add_Lyman_absorption(double *target, double *waves, int nWaves, double z)
-
-
 def Lyman_absorption(obsWaves, z):
     """
     Compute the IGM transmission curve from Inoue et al. 2014
@@ -689,15 +682,6 @@ def Lyman_absorption(obsWaves, z):
 # Functions about ISM absorptionb                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "clib/sector.h":
-    struct dust_params:
-        double tauUV_ISM
-        double nISM
-        double tauUV_BC
-        double nBC
-        double tBC
-
-
 cdef dust_params *init_dust_parameters(dust):
     cdef:
         int iG
@@ -722,40 +706,6 @@ cdef dust_params *init_dust_parameters(dust):
 # Functions to read SED templates                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef extern from "clib/sector.h":
-    struct sed_params:
-        # Raw templates
-        int minZ
-        int maxZ
-        int nMaxZ
-        int nZ
-        double *Z
-        int nWaves
-        double *waves
-        int nAge
-        double *age
-        double *raw
-        # Redshift
-        double z
-        # Filters
-        int nFlux
-        int nObs
-        int *nFilterWaves
-        double *filterWaves
-        double *filters
-        double *centreWaves
-        double *logWaves
-        # IGM absorption
-        int igm
-        # Working templates
-        int nAgeStep
-        double *ageStep
-        double *integrated
-        double *ready
-        double *working
-        double *inBC
-        double *outBC
-
 def get_wavelength(path):
     #=====================================================================
     # Return wavelengths of SED templates in a unit of angstrom
@@ -767,12 +717,6 @@ cdef void free_raw_spectra(sed_params *spectra):
     free(spectra.age)
     free(spectra.waves)
     free(spectra.raw)
-
-
-cdef extern from "clib/sector.h":
-    void init_templates_raw(sed_params *spectra, char *fName)
-
-    void shrink_templates_raw(sed_params *spectra, double maxAge)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -821,12 +765,6 @@ def beta_filters():
                         [1930., 1950.],
                         [2400., 2580.]])
     return windows
-
-
-cdef extern from "clib/sector.h":
-    void init_filters(sed_params *spectra,
-                      double *betaBands, int nBeta, double *restBands, int nRest,
-                      double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z)
 
 
 cdef void generate_filters(sed_params *spectra, outType,
@@ -907,12 +845,6 @@ def get_output_name(prefix, postfix, snap, path):
         fname = prefix + "_%03d_%d"%(snap, idx) + postfix
         idx += 1
     return os.path.join(path, fname)
-
-
-cdef extern from "clib/sector.h" nogil:
-    double *composite_spectra_cext(sed_params *spectra,
-                                   gal_params *galParams, dust_params *dustParams,
-                                   short outType, short approx, short nThread)
 
 
 def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
