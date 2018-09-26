@@ -103,7 +103,7 @@
  * Galaxy properites related                                                   *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-void trim_gal_params(struct gal_params *galParams, int minZ, int maxZ) {
+void trim_gal_params(gal_params_t *galParams, int minZ, int maxZ) {
     /* Set the metallicity of each SSP to the given range */
     int iB, iG;
 
@@ -111,9 +111,9 @@ void trim_gal_params(struct gal_params *galParams, int minZ, int maxZ) {
     float f_maxZ = (maxZ + 1.)/1000.;
     int metals;
     int nGal = galParams->nGal;
-    struct csp *pHistories = galParams->histories;
+    csp_t *pHistories = galParams->histories;
     int nBurst;
-    struct ssp *pBursts;
+    ssp_t *pBursts;
 
     for(iG = 0; iG < nGal; ++iG) {
         nBurst = pHistories->nBurst;
@@ -162,8 +162,8 @@ void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
 }
 
 
-void compute_spectra(double *target, struct sed_params *spectra,
-                     struct gal_params *galParams, struct dust_params *dustParams,
+void compute_spectra(double *target, sed_params_t *spectra,
+                     gal_params_t *galParams, dust_params_t *dustParams,
                      int approx, short nThread) {
     // Initialise SED templates
     spectra->ready = NULL;
@@ -195,15 +195,15 @@ void compute_spectra(double *target, struct sed_params *spectra,
         int iP, nProg;
         int nAgeStep = galParams->nAgeStep;
         int nGal = galParams->nGal;
-        struct csp *histories = galParams->histories;
-        struct csp *pHistories;
-        struct ssp *pBursts;
+        csp_t *histories = galParams->histories;
+        csp_t *pHistories;
+        ssp_t *pBursts;
         double sfr;
         int metals;
 
         int nFlux = spectra->nFlux;
-        struct sed_params omp_spectra;
-        memcpy(&omp_spectra, spectra, sizeof(struct sed_params));
+        sed_params_t omp_spectra;
+        memcpy(&omp_spectra, spectra, sizeof(sed_params_t));
         double *readyData = malloc(spectra->nZ*nAgeStep*spectra->nWaves*sizeof(double));
         double *workingData = malloc(spectra->nMaxZ*nAgeStep*nFlux*sizeof(double));
         omp_spectra.ready = readyData;
@@ -313,8 +313,8 @@ void compute_spectra(double *target, struct sed_params *spectra,
 }
 
 
-double *composite_spectra_cext(struct sed_params *spectra,
-                               struct gal_params *galParams, struct dust_params *dustParams,
+double *composite_spectra_cext(sed_params_t *spectra,
+                               gal_params_t *galParams, dust_params_t *dustParams,
                                short outType, short approx, short nThread) {
     // Trim the metallicity of each SSP such that it is within the range of
     // input SED templates

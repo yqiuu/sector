@@ -5,12 +5,12 @@
 #include"hdf5_hl.h"
 
 
-int *age_flag(struct csp *histories, int nAgeStep) {
+int *age_flag(csp_t *histories, int nAgeStep) {
     int iA, iB;
 
     int *ageFlag = malloc(nAgeStep*sizeof(int));
     int nB = histories->nBurst;
-    struct ssp *bursts = histories->bursts;
+    ssp_t *bursts = histories->bursts;
 
     for(iA = 0; iA < nAgeStep; ++iA)
         ageFlag[iA] = 1;
@@ -21,12 +21,12 @@ int *age_flag(struct csp *histories, int nAgeStep) {
 }
 
 
-int *Z_flag(struct csp *histories, int nMaxZ) {
+int *Z_flag(csp_t *histories, int nMaxZ) {
     int iZ, iB;
 
     int *ZFlag = malloc(nMaxZ*sizeof(int));
     int nB = histories->nBurst;
-    struct ssp *bursts = histories->bursts;
+    ssp_t *bursts = histories->bursts;
 
     for(iZ = 0; iZ < nMaxZ; ++iZ)
         ZFlag[iZ] = 1;
@@ -37,7 +37,7 @@ int *Z_flag(struct csp *histories, int nMaxZ) {
 }
 
 
-void init_templates_raw(struct sed_params *spectra, char *fName) {
+void init_templates_raw(sed_params_t *spectra, char *fName) {
     /* File name should be "sed_library.hdf5" and contain:
      * "/metals" Metallicity grid (1-D dataset)
      * "/waves" Wavelength grid [AA] (1-D dataset)
@@ -87,7 +87,7 @@ void init_templates_raw(struct sed_params *spectra, char *fName) {
 }
 
 
-void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
+void shrink_templates_raw(sed_params_t *spectra, double maxAge) {
     if (spectra->filters == NULL)
         return;
 
@@ -177,7 +177,7 @@ void shrink_templates_raw(struct sed_params *spectra, double maxAge) {
 }
 
 
-void init_filters(struct sed_params *spectra,
+void init_filters(sed_params_t *spectra,
                   double *betaBands, int nBeta, double *restBands, int nRest,
                   double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z) {
     // Initialise filter parameters
@@ -299,7 +299,7 @@ void init_filters(struct sed_params *spectra,
 }
 
 
-void init_templates_integrated(struct sed_params *spectra) {
+void init_templates_integrated(sed_params_t *spectra) {
     int iA, iW, iZ;
     double *pData;
 
@@ -334,8 +334,8 @@ void init_templates_integrated(struct sed_params *spectra) {
 }
 
 
-void init_templates_working(struct sed_params *spectra, struct csp *pHistories,
-                                   struct dust_params *dustParams, int iG) {
+void init_templates_working(sed_params_t *spectra, csp_t *pHistories,
+                            dust_params_t *dustParams, int iG) {
     int *ageFlag = NULL;
     int *ZFlag = NULL;
 

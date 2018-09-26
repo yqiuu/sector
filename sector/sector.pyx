@@ -89,7 +89,7 @@ def timing_end():
 # Functions to load galaxy properties                                           #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef void free_gal_params(gal_params *galParams):
+cdef void free_gal_params(gal_params_t *galParams):
     cdef:
         int iG
         int nGal = galParams.nGal
@@ -113,7 +113,7 @@ cdef class galaxy_tree_meraxes:
         float **sfr
         # Trace parameters
         int tSnap
-        ssp *bursts
+        ssp_t *bursts
         int nBurst
         #
         int snapMin
@@ -168,7 +168,7 @@ cdef class galaxy_tree_meraxes:
         self.snapMax = snapMax
         timing_end()
         # This varible is used to trace progenitors
-        self.bursts = <ssp*>malloc(MAX_NODE*sizeof(ssp))
+        self.bursts = <ssp_t*>malloc(MAX_NODE*sizeof(ssp_t))
 
 
     def __dealloc__(self):
@@ -192,7 +192,7 @@ cdef class galaxy_tree_meraxes:
     cdef void trace_progenitors(self, int snap, int galIdx):
         cdef:
             float sfr
-            ssp *pBursts
+            ssp_t *pBursts
             int nProg
         if galIdx >= 0:
             sfr = self.sfr[snap][galIdx]
@@ -209,13 +209,13 @@ cdef class galaxy_tree_meraxes:
             self.trace_progenitors(snap, self.nextProgenitor[snap][galIdx])
 
 
-    cdef csp *trace_properties(self, int tSnap, int[:] indices):
+    cdef csp_t *trace_properties(self, int tSnap, int[:] indices):
         cdef:
             int iG
             int nGal = indices.shape[0]
-            csp *histories = <csp*>malloc(nGal*sizeof(csp))
-            csp *pHistories
-            ssp *bursts = self.bursts
+            csp_t *histories = <csp_t*>malloc(nGal*sizeof(csp_t))
+            csp_t *pHistories
+            ssp_t *bursts = self.bursts
             int galIdx
             int nProg
             float sfr
@@ -242,8 +242,8 @@ cdef class galaxy_tree_meraxes:
                 #print "Warning: snapshot %d, index %d"%(tSnap, galIdx)
                 #print "         the star formation rate is zero throughout the histroy"
             else:
-                memSize = nProg*sizeof(ssp)
-                pHistories.bursts = <ssp*>malloc(memSize)
+                memSize = nProg*sizeof(ssp_t)
+                pHistories.bursts = <ssp_t*>malloc(memSize)
                 memcpy(pHistories.bursts, bursts, memSize)
                 totalMemSize += memSize
         print "# %.1f MB memory has been allocted"%(totalMemSize/1024./1024.)
@@ -251,7 +251,7 @@ cdef class galaxy_tree_meraxes:
         return histories
 
 
-cdef void save_gal_params(gal_params *galParams, char *fname):
+cdef void save_gal_params(gal_params_t *galParams, char *fname):
     cdef:
         int iA, iG
         FILE *fp
@@ -261,7 +261,7 @@ cdef void save_gal_params(gal_params *galParams, char *fname):
         double *ageStep = galParams.ageStep
         int nGal = galParams.nGal
         int *indices = galParams.indices
-        csp *histories = galParams.histories
+        csp_t *histories = galParams.histories
 
         int nBurst
 
@@ -278,11 +278,11 @@ cdef void save_gal_params(gal_params *galParams, char *fname):
     for iG in xrange(nGal):
         nBurst = histories[iG].nBurst
         fwrite(&nBurst, sizeof(int), 1, fp)
-        fwrite(histories[iG].bursts, sizeof(ssp), nBurst, fp)
+        fwrite(histories[iG].bursts, sizeof(ssp_t), nBurst, fp)
     fclose(fp)
 
 
-cdef void read_gal_params(gal_params *galParams, char *fname):
+cdef void read_gal_params(gal_params_t *galParams, char *fname):
     cdef:
         int iG
         FILE *fp
@@ -292,7 +292,7 @@ cdef void read_gal_params(gal_params *galParams, char *fname):
         double *ageStep
         int nGal
         int *indices
-        csp *histories
+        csp_t *histories
 
         int nBurst
 
@@ -311,13 +311,13 @@ cdef void read_gal_params(gal_params *galParams, char *fname):
     indices = <int*>malloc(nGal*sizeof(int))
     fread(indices, sizeof(int), nGal, fp)
     # Read histories
-    histories = <csp*>malloc(nGal*sizeof(csp))
+    histories = <csp_t*>malloc(nGal*sizeof(csp_t))
     pHistories = histories
     for iG in xrange(nGal):
         fread(&nBurst, sizeof(int), 1, fp)
         histories[iG].nBurst = nBurst
-        histories[iG].bursts = <ssp*>malloc(nBurst*sizeof(ssp))
-        fread(histories[iG].bursts, sizeof(ssp), nBurst, fp)
+        histories[iG].bursts = <ssp_t*>malloc(nBurst*sizeof(ssp_t))
+        fread(histories[iG].bursts, sizeof(ssp_t), nBurst, fp)
         pHistories += 1
     fclose(fp)
 
@@ -376,14 +376,14 @@ def save_star_formation_history(fname, snapList, idxList, h,
 def get_mean_star_formation_rate(sfhPath, double meanAge):
     cdef:
         int iA, iB, iG
-        gal_params galParams
+        gal_params_t galParams
         int nMaxStep = 0
         int nAgeStep
         double *ageStep
         int nGal
-        csp *pHistories
+        csp_t *pHistories
         int nBurst
-        ssp *pBursts
+        ssp_t *pBursts
         short index
         double dt, totalMass
         double[:] meanSFR
@@ -425,12 +425,12 @@ def get_mean_star_formation_rate(sfhPath, double meanAge):
 
 cdef class stellar_population:
     cdef:
-        gal_params *default
-        gal_params *modified
+        gal_params_t *default
+        gal_params_t *modified
         int nGal
 
     def __cinit__(self, galaxy_tree_meraxes galData, snapshot, gals):
-        cdef gal_params *default = <gal_params*>malloc(sizeof(gal_params))
+        cdef gal_params_t *default = <gal_params_t*>malloc(sizeof(gal_params_t))
 
         if type(gals) is str:
             # Read SFHs from files
@@ -467,7 +467,7 @@ cdef class stellar_population:
         cdef:
             int iG
             int nGal = self.nGal
-            csp *histories = self.modified.histories
+            csp_t *histories = self.modified.histories
 
         for iG in xrange(nGal):
             free(histories[iG].bursts)
@@ -482,8 +482,8 @@ cdef class stellar_population:
         cdef:
             int iG
             int nGal = self.nGal
-            gal_params *default = self.default
-            csp *histories = default.histories
+            gal_params_t *default = self.default
+            csp_t *histories = default.histories
         for iG in xrange(nGal):
             free(histories[iG].bursts)
         free(default.histories)
@@ -493,7 +493,7 @@ cdef class stellar_population:
         self.free_modified(1)
 
 
-    cdef gal_params *pointer(self):
+    cdef gal_params_t *pointer(self):
         if self.modified == NULL:
             return self.default
         else:
@@ -510,27 +510,27 @@ cdef class stellar_population:
             int iA, iB, iG
             int nGal = self.nGal
 
-            gal_params *default = self.default
-            csp *dfHistories = default.histories
+            gal_params_t *default = self.default
+            csp_t *dfHistories = default.histories
             int nBurst
-            ssp *dfBursts
+            ssp_t *dfBursts
 
-            gal_params *modified = <gal_params*>malloc(sizeof(gal_params))
+            gal_params_t *modified = <gal_params_t*>malloc(sizeof(gal_params_t))
             int nAgeStep = default.nAgeStep
             double *ageStep = <double*>malloc(nAgeStep*sizeof(double))
-            csp *histories = <csp*>malloc(nGal*sizeof(csp))
-            ssp *bursts
+            csp_t *histories = <csp_t*>malloc(nGal*sizeof(csp_t))
+            ssp_t *bursts
             double metals, sfr
 
         # Initialise the modified population
-        memcpy(modified, default, sizeof(gal_params))
+        memcpy(modified, default, sizeof(gal_params_t))
         memcpy(ageStep, default.ageStep, nAgeStep*sizeof(double))
 
         # Merge stellar population in the same snapshot
         for iG in xrange(nGal):
             nBurst = dfHistories[iG].nBurst
             dfBursts = dfHistories[iG].bursts
-            bursts = <ssp*>malloc(nAgeStep*sizeof(ssp))
+            bursts = <ssp_t*>malloc(nAgeStep*sizeof(ssp_t))
             histories[iG].nBurst = nAgeStep
             histories[iG].bursts = bursts
             for iA in xrange(nAgeStep):
@@ -565,9 +565,9 @@ cdef class stellar_population:
         cdef:
             int iS
             int nSmooth = timeGrid
-            csp *specHistories = <csp*>malloc(nGal*sizeof(csp))
+            csp_t *specHistories = <csp_t*>malloc(nGal*sizeof(csp_t))
             int nSpecBurst = nAgeStep/nSmooth
-            ssp *specBurst
+            ssp_t *specBurst
             double *specAgeStep
             double dm, dt
 
@@ -578,7 +578,7 @@ cdef class stellar_population:
 
         for iG in xrange(nGal):
             bursts = histories[iG].bursts
-            specBursts = <ssp*>malloc(nSpecBurst*sizeof(ssp))
+            specBursts = <ssp_t*>malloc(nSpecBurst*sizeof(ssp_t))
             specHistories[iG].nBurst = nSpecBurst
             specHistories[iG].bursts = specBursts
             for iB in xrange(nSpecBurst):
@@ -620,7 +620,7 @@ cdef class stellar_population:
         elif iG < 0:
             iG = self.nGal + iG
     
-        cdef csp *histories
+        cdef csp_t *histories
         if self.modified == NULL:
             histories = self.default.histories + iG
         else:
@@ -629,7 +629,7 @@ cdef class stellar_population:
         cdef:
             int iB
             int nBurst = histories.nBurst
-            ssp *pBursts = histories.bursts
+            ssp_t *pBursts = histories.bursts
 
         arr = np.zeros(nBurst, dtype = [('index', 'i4'), ('metallicity', 'f4'), ('sfr', 'f4')])
         for iB in xrange(nBurst):
@@ -682,13 +682,13 @@ def Lyman_absorption(obsWaves, z):
 # Functions about ISM absorptionb                                               #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef dust_params *init_dust_parameters(dust):
+cdef dust_params_t *init_dust_parameters(dust):
     cdef:
         int iG
         int nGal = len(dust)
         double[:, ::1] mvDustParams = np.array(dust)
-        dust_params *dustParams = <dust_params*>malloc(nGal*sizeof(dust_params))
-        dust_params *pDustParams = dustParams
+        dust_params_t *dustParams = <dust_params_t*>malloc(nGal*sizeof(dust_params_t))
+        dust_params_t *pDustParams = dustParams
 
     for iG in xrange(nGal):
         pDustParams.tauUV_ISM = mvDustParams[iG, 0]
@@ -713,7 +713,7 @@ def get_wavelength(path):
     return np.array(h5py.File(os.path.join(path, "sed_library.hdf5"), "r").get("waves"))
 
 
-cdef void free_raw_spectra(sed_params *spectra):
+cdef void free_raw_spectra(sed_params_t *spectra):
     free(spectra.age)
     free(spectra.waves)
     free(spectra.raw)
@@ -767,7 +767,7 @@ def beta_filters():
     return windows
 
 
-cdef void generate_filters(sed_params *spectra, outType,
+cdef void generate_filters(sed_params_t *spectra, outType,
                            betaBands, restBands, obsBands, z, obsFrame):
     cdef:
         double *c_betaBands = NULL
@@ -821,7 +821,7 @@ cdef void generate_filters(sed_params *spectra, outType,
         free(c_restBands)
 
 
-cdef void free_filters(sed_params *spectra):
+cdef void free_filters(sed_params_t *spectra):
     free(spectra.nFilterWaves)
     free(spectra.filterWaves)
     free(spectra.filters)
@@ -956,8 +956,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
     waves = get_wavelength(sedPath)
     cdef:
-        sed_params spectra
-        gal_params *galParams
+        sed_params_t spectra
+        gal_params_t *galParams
         double z
         int nGal
 
@@ -969,7 +969,7 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
         int nR = 3
 
-        dust_params *dustParams = NULL
+        dust_params_t *dustParams = NULL
 
         double *c_output
         double[:] mvOutput
@@ -1073,8 +1073,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 cdef class calibration:
     cdef:
         int nSnap
-        gal_params *galParams
-        sed_params *spectra
+        gal_params_t *galParams
+        sed_params_t *spectra
         short approx
         short nThread
         tuple args
@@ -1083,13 +1083,13 @@ cdef class calibration:
         cdef:
             int iS
             int nSnap = len(sfhList)
-            gal_params *pGalParams
-            sed_params *pSpectra
+            gal_params_t *pGalParams
+            sed_params_t *pSpectra
             int nBeta
 
         self.nSnap = nSnap
-        self.galParams = <gal_params*>malloc(nSnap*sizeof(gal_params))
-        self.spectra = <sed_params*>malloc(nSnap*sizeof(sed_params))
+        self.galParams = <gal_params_t*>malloc(nSnap*sizeof(gal_params_t))
+        self.spectra = <sed_params_t*>malloc(nSnap*sizeof(sed_params_t))
         self.approx = <short>approx
         self.nThread = <short>nThread
         self.args = (sfhList, sedPath, betaBands, approx, nThread)
@@ -1116,8 +1116,8 @@ cdef class calibration:
         cdef:
             int iS
             int nSnap = self.nSnap
-            gal_params *pGalParams = self.galParams
-            sed_params *pSpectra = self.spectra
+            gal_params_t *pGalParams = self.galParams
+            sed_params_t *pSpectra = self.spectra
 
         for iS in xrange(nSnap):
             free_gal_params(pGalParams)
@@ -1139,10 +1139,10 @@ cdef class calibration:
         cdef:
             int iS
             int nSnap = self.nSnap
-            gal_params *pGalParams = self.galParams
-            sed_params *pSpectra = self.spectra
+            gal_params_t *pGalParams = self.galParams
+            sed_params_t *pSpectra = self.spectra
             int iG, nGal
-            dust_params *dustParams = NULL
+            dust_params_t *dustParams = NULL
             double *output
             double *pOutput
             int nFlux = pSpectra.nFlux

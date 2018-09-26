@@ -9,23 +9,25 @@
  * SFHs related                                                                *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-struct ssp {
+typedef struct ssp_t {
     short index;
     float metals;
     float sfr;
-};
-struct csp {
-    struct ssp *bursts;
+} ssp_t;
+
+typedef struct csp_t {
+    ssp_t *bursts;
     int nBurst;
-};
-struct gal_params {
+} csp_t;
+
+typedef struct gal_params_t {
     double z;
     int nAgeStep;
     double *ageStep;
     int nGal;
     int *indices;
-    struct csp *histories;
-};
+    csp_t *histories;
+} gal_params_t;
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -33,7 +35,7 @@ struct gal_params {
  * SEDs and dust related                                                       *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-struct sed_params {
+typedef struct sed_params_t {
     // Raw templates
     int minZ;
     int maxZ;
@@ -65,52 +67,52 @@ struct sed_params {
     double *working;
     double *inBC;
     double *outBC;
-};
+} sed_params_t;
 
-struct dust_params {
+typedef struct dust_params_t {
     double tauUV_ISM;
     double nISM;
     double tauUV_BC;
     double nBC;
     double tBC;
-};
+} dust_params_t;
 
 #ifndef _SECTOR_
-void init_templates_raw(struct sed_params *spectra, char *fName);
-void init_filters(struct sed_params *spectra,
+void init_templates_raw(sed_params_t *spectra, char *fName);
+void init_filters(sed_params_t *spectra,
                   double *betaBands, int nBeta, double *restBands, int nRest,
                   double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z);
-void shrink_templates_raw(struct sed_params *spectra, double maxAge);
-void init_templates_integrated(struct sed_params *spectra);
-void init_templates_working(struct sed_params *spectra, struct csp *pHistories,
-                            struct dust_params *dustParams, int iG);
-double *composite_spectra_cext(struct sed_params *spectra,
-                               struct gal_params *galParams, struct dust_params *dustParams,
+void shrink_templates_raw(sed_params_t *spectra, double maxAge);
+void init_templates_integrated(sed_params_t *spectra);
+void init_templates_working(sed_params_t *spectra, csp_t *pHistories,
+                            dust_params_t *dustParams, int iG);
+double *composite_spectra_cext(sed_params_t *spectra,
+                               gal_params_t *galParams, dust_params_t *dustParams,
                                short outType, short approx, short nThread);
 #endif
 
 #ifndef _SPECTRA_
-void init_templates_raw(struct sed_params *spectra, char *fName);
-void shrink_templates_raw(struct sed_params *spectra, double maxAge);
-void init_filters(struct sed_params *spectra,
+void init_templates_raw(sed_params_t *spectra, char *fName);
+void shrink_templates_raw(sed_params_t *spectra, double maxAge);
+void init_filters(sed_params_t *spectra,
                   double *betaBands, int nBeta, double *restBands, int nRest,
                   double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z);
-void init_templates_integrated(struct sed_params *spectra);
-void init_templates_working(struct sed_params *spectra, struct csp *pHistories,
-                                   struct dust_params *dustParams, int iG);
+void init_templates_integrated(sed_params_t *spectra);
+void init_templates_working(sed_params_t *spectra, csp_t *pHistories,
+                                   dust_params_t *dustParams, int iG);
 #endif
 
 
 #ifndef _DUST_
 int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep);
-void init_templates_special(struct sed_params *spectra, double tBC, int approx);
-void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams);
+void init_templates_special(sed_params_t *spectra, double tBC, int approx);
+void dust_absorption(sed_params_t *spectra, dust_params_t *dustParams);
 void dust_absorption_approx(double *inBCFlux, double *outBCFlux, double *centreWaves, int nFlux,
-                            struct dust_params *dustParams);
+                            dust_params_t *dustParams);
 #endif
 
 #ifndef _IGM_
 void add_Lyman_absorption(double *target, double *waves, int nWaves, double z);
-void add_IGM_absorption_filters(struct sed_params *spectra);
-void add_IGM_absorption_spectra(struct sed_params *spectra, double *pData, int nGal);
+void add_IGM_absorption_filters(sed_params_t *spectra);
+void add_IGM_absorption_spectra(sed_params_t *spectra, double *pData, int nGal);
 #endif

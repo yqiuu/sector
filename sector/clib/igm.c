@@ -120,7 +120,7 @@ void add_Lyman_absorption(double *target, double *waves, int nWaves, double z) {
 }
 
 
-void add_IGM_absorption_filters(struct sed_params *spectra) {
+void add_IGM_absorption_filters(sed_params_t *spectra) {
     if (spectra->igm > 0 && spectra->nObs > 0) {
         // Initialise observed wavelengths
         int iF, iW;
@@ -150,7 +150,7 @@ void add_IGM_absorption_filters(struct sed_params *spectra) {
 }
 
 
-void add_IGM_absorption_spectra(struct sed_params *spectra, double *pData, int nGal) {
+void add_IGM_absorption_spectra(sed_params_t *spectra, double *pData, int nGal) {
     if (spectra->igm > 0 && spectra->nObs > 0 && spectra->filters == NULL) {
         // Compute the transmission of Lyman absorption
         int iW;

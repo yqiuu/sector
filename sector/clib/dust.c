@@ -12,7 +12,7 @@ int birth_cloud_interval(double tBC, double *ageStep, int nAgeStep) {
 }
 
 
-void init_templates_special(struct sed_params *spectra, double tBC, int approx) {
+void init_templates_special(sed_params_t *spectra, double tBC, int approx) {
     /* Special templates are for birth cloud 
      * Dimension: metallicity × wavelength
      */
@@ -116,7 +116,7 @@ void init_templates_special(struct sed_params *spectra, double tBC, int approx) 
 }
 
 
-void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams) {
+void dust_absorption(sed_params_t *spectra, dust_params_t *dustParams) {
     /* tBC:   life time of the birth clound
      * nu:    fraction of ISM dust absorption
      * tauUV: UV-band absorption optical depth
@@ -174,7 +174,7 @@ void dust_absorption(struct sed_params *spectra, struct dust_params *dustParams)
 
 
 void dust_absorption_approx(double *inBCFlux, double *outBCFlux, double *centreWaves, int nFlux,
-                            struct dust_params *dustParams) {
+                            dust_params_t *dustParams) {
     // Apply reddening directly on the flux in fitlers as an approximation
     int iF;
     double tauUV_ISM = dustParams->tauUV_ISM;

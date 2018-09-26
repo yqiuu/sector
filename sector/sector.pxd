@@ -1,22 +1,22 @@
 cdef extern from "clib/sector.h":
-    struct ssp:
+    ctypedef struct ssp_t:
         short index
         float metals
         float sfr
 
-    struct csp:
-        ssp *bursts
+    ctypedef struct csp_t:
+        ssp_t *bursts
         int nBurst
 
-    struct gal_params:
+    ctypedef struct gal_params_t:
         double z
         int nAgeStep
         double *ageStep
         int nGal
         int *indices
-        csp *histories
+        csp_t *histories
 
-    struct sed_params:
+    ctypedef struct sed_params_t:
         # Raw templates
         int minZ
         int maxZ
@@ -49,7 +49,7 @@ cdef extern from "clib/sector.h":
         double *inBC
         double *outBC
 
-    struct dust_params:
+    ctypedef struct dust_params_t:
         double tauUV_ISM
         double nISM
         double tauUV_BC
@@ -58,14 +58,14 @@ cdef extern from "clib/sector.h":
 
 
     void add_Lyman_absorption(double *target, double *waves, int nWaves, double z)
-    void init_templates_raw(sed_params *spectra, char *fName)
-    void shrink_templates_raw(sed_params *spectra, double maxAge)
-    void init_filters(sed_params *spectra,
+    void init_templates_raw(sed_params_t *spectra, char *fName)
+    void shrink_templates_raw(sed_params_t *spectra, double maxAge)
+    void init_filters(sed_params_t *spectra,
                       double *betaBands, int nBeta, double *restBands, int nRest,
                       double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z)
 
 
 cdef extern from "clib/sector.h" nogil:
-    double *composite_spectra_cext(sed_params *spectra,
-                                   gal_params *galParams, dust_params *dustParams,
+    double *composite_spectra_cext(sed_params_t *spectra,
+                                   gal_params_t *galParams, dust_params_t *dustParams,
                                    short outType, short approx, short nThread)
