@@ -86,6 +86,8 @@ void shrink_templates_raw(sed_params_t *spectra, double maxAge);
 void init_templates_integrated(sed_params_t *spectra);
 void init_templates_working(sed_params_t *spectra, csp_t *pHistories,
                             dust_params_t *dustParams, int iG);
+void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
+                  double *logWaves, int nFit, int nR);
 double *composite_spectra_cext(sed_params_t *spectra,
                                gal_params_t *galParams, dust_params_t *dustParams,
                                short outType, short approx, short nThread);

@@ -63,6 +63,11 @@ cdef extern from "clib/sector.h":
     void init_filters(sed_params_t *spectra,
                       double *betaBands, int nBeta, double *restBands, int nRest,
                       double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z)
+    void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
+                      double *logWaves, int nFit, int nR)
+
+    void dust_absorption_approx(double *inBCFlux, double *outBCFlux, double *centreWaves, int nFlux,
+                                dust_params_t *dustParams)
 
 
 cdef extern from "clib/sector.h" nogil:
