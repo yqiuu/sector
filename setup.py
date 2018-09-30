@@ -12,6 +12,16 @@ exts = [Extension("sector.sector",
                              "sector/sector.pyx"],
                   include_dirs = ["sector/"],
                   extra_compile_args = ['-fopenmp', '-lhdf5', '-lhdf5_hl'],
+                  extra_link_args = ['-fopenmp', '-lhdf5', '-lhdf5_hl']),
+        Extension("sector.dust",
+                  sources = ["sector/clib/tools.c",
+                             "sector/clib/sector.c",
+                             "sector/clib/spectra.c",
+                             "sector/clib/dust.c",
+                             "sector/clib/igm.c",
+                             "sector/dust.pyx"],
+                  include_dirs = ["sector/"],
+                  extra_compile_args = ['-fopenmp', '-lhdf5', '-lhdf5_hl'],
                   extra_link_args = ['-fopenmp', '-lhdf5', '-lhdf5_hl'])]
 
 for e in exts:
