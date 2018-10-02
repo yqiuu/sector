@@ -65,7 +65,8 @@ class SFR_model_params(dust_params):
 
     def __call__(self, params, props, z):
         tauISM, tauBC, s1, n, tBC, a = self.full_params(params)
-        SFR = props['Sfr']
+        #   -Convert M_solar/yr to 100 M_solar/yr
+        SFR = props['Sfr']/100.
         nGal = len(SFR)
         #
         dustParams = np.zeros(nGal, dtype = self._dtype)
