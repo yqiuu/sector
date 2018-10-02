@@ -35,15 +35,18 @@ class dust_params:
         self._dtype = get_dust_params_dtype()
         self._propNames = tuple(propNames)
         self._paramNames = tuple(paramNames)
+        self._fixedParams = np.full(len(paramNames), np.nan, dtype = np.double)
         self.set_fixed_params(**kwargs)
 
 
     def set_fixed_params(self, **kwargs):
-        p = np.zeros(len(self.paramNames), dtype = np.double)
-        for iN, name in enumerate(self.paramNames):
-            if name not in kwargs:
-                p[iN] = np.nan
-            else:
+        paramNames = self.paramNames
+        for name in kwargs.keys():
+            if name not in paramNames:
+                raise KeyError("%s is not in %s!"%(name, paramNames.__str__()))
+        p = np.array(self._fixedParams, copy = True)
+        for iN, name in enumerate(paramNames):
+            if name in kwargs:
                 p[iN] = kwargs[name]
         p.flags.writeable = False
         self._fixedParams = p
