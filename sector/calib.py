@@ -137,17 +137,12 @@ try:
             self.outPath = outPath
 
 
-        def add_parameter(self, *args, fixed, **kwargs):
-            if 'tBC' in args or 'tBC' in kwargs.keys():
-                raise KeyError("Varying tBC is not supported!")
-            if fixed:
-                try:
-                    name, val = args
-                except:
-                    raise Exception("If fixed, pass parameter name and value as two positional arguments!")
-                self.dustParams.set_fixed_params(**{name:val})
-            else:
-                super().add_parameter(*args, **kwargs)
+        def add_parameter(self, name, p0, *args, **kwargs):
+            if name == 'tBC':
+                raise ValueError("Varying tBC is not supported!")
+            if name in self.dustParams.fixed_names():
+                raise ValueError("Dust parameter %s is fixed!"%name)
+            super().add_parameter(name, p0, *args, **kwargs)
 
 
         def controller_setup(self, sampler):
