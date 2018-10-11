@@ -52,6 +52,10 @@ class dust_params:
         self._fixedParams = p
 
 
+    def fixed_names(self):
+        return np.array(self.paramNames)[~isnan(self._fixedParams)]
+
+
     def full_params(self, params):
         p = np.array(self._fixedParams, copy = True)
         p[isnan(p)] = params
