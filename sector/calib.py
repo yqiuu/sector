@@ -2,6 +2,123 @@ import numpy as np
 import pandas as pd
 
 from .dust import compute_mags_mhysa
+from copy import deepcopy
+from astropy.stats import biweight_location
+
+
+class likelihood_UV:
+    def __init__(self, obsData, volume, keys = None, mincnt = 5, nan = 10e6, blob = False):
+        obsData = self._drop_bright_bins(np.atleast_1d(obsData), volume, mincnt)
+        num = len(obsData)
+        if keys is None:
+            self.obsData = obsData
+            self.keys = np.arange(num)
+        else:
+            keys = np.atleast_1d(keys)
+            if len(keys) != num:
+                raise ValueError("Number of keys should be equal to number observations!")
+            self.obsData = {k:d for (k, d) in zip(keys, obsData)}
+            self.keys = keys
+        self.num = num
+        self.volume = volume
+        self.nan = nan
+        self.blob = blob
+
+
+    def _drop_bright_bins(self, obsData, volume, mincnt):
+        obsData = deepcopy(obsData)
+        for d in obsData:
+            cond = np.full(len(d['obsLF']), True)
+            for iB, ((lower, upper), lf) in enumerate(zip(d['binLF'], d['obsLF'])):
+                if lf*(upper - lower)*volume < mincnt:
+                    cond[iB] = False
+            #
+            d['binLF'] = d['binLF'][cond]
+            d['obsLF'] = d['obsLF'][cond]
+            d['obsLFerr'] = d['obsLFerr'][cond]
+            # Require that the lower bound of the brighest bin of CMRs be fainter than that of LFs
+            # Assume all bins are sorted, and the first bin is brightest.
+            cond = d['binCMR'][:, 0] >= d['binLF'][0, 0]
+            d['binCMR'] = d['binCMR'][cond]
+            d['obsCMR'] = d['obsCMR'][cond]
+            d['obsCMRerr'] = d['obsCMRerr'][cond]
+        return obsData
+
+
+    def _fix_dim(self, keys, M1600, beta):
+        if keys is None:
+            keys = self.keys
+        else:
+            keys = np.atleast_1d(keys)
+        if self.num == 1:
+            M1600 = np.atleast_2d(M1600)
+            if beta is not None:
+                beta = np.atleast_2d(beta)
+        return keys, M1600, beta
+
+
+    @staticmethod
+    def _compute_lnL(model, obs, obsErr):
+        delta = (model - obs)/obsErr
+        return -.5*np.sum(delta*delta + np.log(2*np.pi*obsErr*obsErr))
+
+
+    def _retval(self, lnL, blob):
+        if np.isnan(lnL):
+            lnL = self.nan
+        if self.blob:
+            return lnL, blob
+        else:
+            return lnL
+
+
+    def eval_LF(self, M1600, keys = None):
+        lnL = 0.
+        blob = {}
+        keys, M1600, _ = self._fix_dim(keys, M1600, None)
+        volume = self.volume
+        for k, mags in zip(keys, M1600):
+            obsLF = self.obsData[k]['obsLF']
+            obsLFerr = self.obsData[k]['obsLFerr']
+            modelLF = np.zeros(len(obsLF))
+            for iB, (lower, upper) in enumerate(self.obsData[k]['binLF']):
+                width = upper - lower
+                number = np.sum((mags >= lower) & (mags < upper))
+                if number == 0:
+                    modelLF[iB] = np.nan
+                else:
+                    modelLF[iB] = float(number)/width/volume
+            lnL += self._compute_lnL(modelLF, obsLF, obsLFerr)
+            blob[k] = modelLF
+        return self._retval(lnL, blob)
+
+
+    def eval_CMR(self, M1600, beta, keys = None):
+        lnL = 0.
+        blob = {}
+        keys, M1600, beta = self._fix_dim(keys, M1600, beta)
+        for k, mags, b in zip(keys, M1600, beta):
+            obsCMR = self.obsData[k]['obsCMR']
+            obsCMRerr = self.obsData[k]['obsCMRerr']
+            modelCMR = np.zeros(len(obsCMR))
+            for iB, (lower, upper) in enumerate(self.obsData[k]['binCMR']):
+                sample = b[(mags >= lower) & (mags < upper)]
+                if len(sample) < 2:
+                    modelCMR[iB] = np.nan
+                else:
+                    modelCMR[iB] = biweight_location(sample)
+            lnL += self._compute_lnL(modelCMR, obsCMR, obsCMRerr)
+            blob[k] = modelCMR
+        return self._retval(lnL, blob)
+
+
+    def __call__(self, M1600, beta, keys = None):
+        if self.blob:
+            val1, blob1 = self.eval_LF(M1600, keys)
+            val2, blob2 = self.eval_CMR(M1600, beta, keys)
+            return val1 + val2, (blob1, blob2)
+        else:
+            return self.eval_LF(M1600, keys) + self.eval_CMR(M1600, beta, keys)
 
 
 try:
