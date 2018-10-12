@@ -220,7 +220,7 @@ try:
                 )
                 # Compute lnlikelihood
                 lnL, self.blob = self.estimator(M1600, beta, keys = snapshot)
-                logging.debug('LF & CMR z=%.2f lnL=%.2e'%(self.redshift, lnL))
+                logging.debug('[comm %d] :: LF & CMR snapshot=%d lnL=%.2e'%(sampler.i_comm, snapshot, lnL))
                 #
                 if self.saveMags:
                     fName = "%s/%s_snap%03d_%s_%d.hdf5"%(
@@ -228,7 +228,7 @@ try:
                         '_'.join([str(p.current_value) for p in sampler.iter_all_params()]), sampler.i_comm
                     )
                     self._save_mags(fName, gals['ID'], M1600, beta)
-                    logging.info("[i_comm %d] Save output."%sampler.i_comm)
+                    logging.info("[comm %d] :: Save output."%sampler.i_comm)
                 #
                 return lnL
             else:
