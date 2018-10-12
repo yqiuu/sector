@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import pandas as pd
 
@@ -127,14 +128,16 @@ try:
     class LF_CMR(Constraint):
         def __init__(
             self, name, snapshots, obsData, dustParams, magCut = -15., label = None,
-            saveMags = False, prefix = "mags", outPath = "outputs/"):
+            saveMags = False, prefix = "mags", outPath = "outputs/", **lnKwargs):
             #
             super().__init__(name, snapshots, label)
+            self.obsData = obsData
             self.dustParams = dustParams
             self.magCut = magCut
             self.saveMags = saveMags
             self.prefix = prefix
             self.outPath = outPath
+            self.lnKwargs = lnKwargs
 
 
         def add_parameter(self, name, p0, *args, **kwargs):
@@ -163,6 +166,11 @@ try:
                 except:
                     raise Exception("Snapshots and those in the input file mismath!")
             self.snapDict = snapDict
+            # Set likelihood function
+            self.lnKwargs['blob'] = True
+            self.estimator = likelihood_UV(
+                self.obsData, sampler.meraxes_globals.comoving_volume(), keys = self.required_snapshots, **self.lnKwargs
+            )
             # Check if the UV band is right
             if not np.isclose(centreWaves[nBeta], 1600.):
                 raise ValueError("The centre wavelength of the first rest-frame filters should be 1600 angstrom!")
@@ -203,7 +211,6 @@ try:
 
 
         def lnlikelihood(self, snapshot, gals, sampler):
-            lnL = 0.
             if sampler.is_controller:
                 inBCFlux, outBCFlux, gals = self._squeeze_gals(snapshot, gals)
                 # Compute UV properties with dust
@@ -213,6 +220,9 @@ try:
                 M1600, beta = compute_mags_mhysa(
                     inBCFlux, outBCFlux, self.centreWaves, self.logWaves, self.nBeta, self.nFlux, dustParams
                 )
+                # Compute lnlikelihood
+                lnL, self.blob = self.estimator(M1600, beta, keys = snapshot)
+                logging.debug('LF & CMR z=%.2f lnL=%.2e'%(self.redshift, lnL))
                 #
                 if self.saveMags:
                     fName = "%s/%s_snap%03d_%s_%d.hdf5"%(
@@ -220,9 +230,11 @@ try:
                         '_'.join([str(p.current_value) for p in sampler.iter_all_params()]), sampler.i_comm
                     )
                     self._save_mags(fName, gals['ID'], M1600, beta)
-                    print("[i_comm %d] Save output."%sampler.i_comm)
-                # compute lnlikelihood
-            return lnL
+                    logging.info("[i_comm %d] Save output."%sampler.i_comm)
+                #
+                return lnL
+            else:
+                return 0.
 
 
 except:
