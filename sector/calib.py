@@ -167,7 +167,7 @@ try:
             # Set likelihood function
             self.lnKwargs['blob'] = True
             self.estimator = likelihood_UV(
-                self.obsData, sampler.meraxes_globals.comoving_volume(), keys = self.required_snapshots, **self.lnKwargs
+                self.obsData, sampler.meraxes_globals.comoving_volume(), keys = snapshots, **self.lnKwargs
             )
             # Check if the UV band is right
             if not np.isclose(centreWaves[nBeta], 1600.):
