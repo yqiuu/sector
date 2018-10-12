@@ -16,7 +16,7 @@ class likelihood_UV:
         else:
             keys = np.atleast_1d(keys)
             if len(keys) != len(obsData):
-                raise ValueError("Number of keys should be equal to number observations!")
+                raise ValueError("Number of keys should be equal to number of observations!")
             self.obsData = {k:d for (k, d) in zip(keys, obsData)}
             self.keys = keys
         self.volume = volume
@@ -162,7 +162,7 @@ try:
                 try:
                     snapDict[snap] = snapshots.index(snap)
                 except:
-                    raise Exception("Snapshots and those in the input file mismath!")
+                    raise Exception("Snapshots and those in the input file mismatch!")
             self.snapDict = snapDict
             # Set likelihood function
             self.lnKwargs['blob'] = True
