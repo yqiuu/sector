@@ -10,17 +10,15 @@ from astropy.stats import biweight_location
 class likelihood_UV:
     def __init__(self, obsData, volume, keys = None, mincnt = 5, nan = 10e6, blob = False):
         obsData = self._drop_bright_bins(np.atleast_1d(obsData), volume, mincnt)
-        num = len(obsData)
         if keys is None:
             self.obsData = obsData
-            self.keys = np.arange(num)
+            self.keys = np.arange(len(obsData))
         else:
             keys = np.atleast_1d(keys)
-            if len(keys) != num:
+            if len(keys) != len(obsData):
                 raise ValueError("Number of keys should be equal to number observations!")
             self.obsData = {k:d for (k, d) in zip(keys, obsData)}
             self.keys = keys
-        self.num = num
         self.volume = volume
         self.nan = nan
         self.blob = blob
@@ -51,7 +49,7 @@ class likelihood_UV:
             keys = self.keys
         else:
             keys = np.atleast_1d(keys)
-        if self.num == 1:
+        if len(keys) == 1:
             M1600 = np.atleast_2d(M1600)
             if beta is not None:
                 beta = np.atleast_2d(beta)
