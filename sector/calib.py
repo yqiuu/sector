@@ -8,7 +8,7 @@ from astropy.stats import biweight_location
 
 
 class likelihood_UV:
-    def __init__(self, obsData, volume, keys = None, mincnt = 5, nan = 10e6, blob = False):
+    def __init__(self, obsData, volume, keys = None, mincnt = 5, nan = -1e6, blob = False):
         obsData = self._drop_bright_bins(np.atleast_1d(obsData), volume, mincnt)
         if keys is None:
             self.obsData = obsData
