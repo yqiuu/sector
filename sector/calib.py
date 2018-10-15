@@ -115,7 +115,8 @@ class likelihood_UV:
         if self.blob:
             val1, blob1 = self.eval_LF(M1600, keys)
             val2, blob2 = self.eval_CMR(M1600, beta, keys)
-            return val1 + val2, (blob1, blob2)
+            blob = {k:(blob1[k], blob2[k]) for k in blob1.keys()}
+            return val1 + val2, blob
         else:
             return self.eval_LF(M1600, keys) + self.eval_CMR(M1600, beta, keys)
 
@@ -219,8 +220,12 @@ try:
                     inBCFlux, outBCFlux, self.centreWaves, self.logWaves, self.nBeta, self.nFlux, dustParams
                 )
                 # Compute lnlikelihood
-                lnL, self.blob = self.estimator(M1600, beta, keys = snapshot)
+                lnL, blob = self.estimator(M1600, beta, keys = snapshot)
                 logging.debug('[comm %d] :: LF & CMR snapshot=%d lnL=%.2e'%(sampler.i_comm, snapshot, lnL))
+                # Save blobs
+                if self.blob is None:
+                    self.blob = {}
+                self.blob.update(blob)
                 #
                 if self.saveMags:
                     fName = "%s/%s_snap%03d_%s_%d.hdf5"%(
