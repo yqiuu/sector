@@ -8,6 +8,44 @@ from astropy.stats import biweight_location
 
 
 class likelihood_UV:
+    """
+    Evaluate the likelihood value of of observed LFs and CMRs given model UV
+    magnitudes and UV slopes.
+
+    Parameters
+    ----------
+    obsData: squence
+        Each element should be a dict, which specifies a set of observations at
+        a epoch. The dict should have the following keys:
+            binLF: 2-D array [AB mag]
+                Each row specifies lower and upper bounds of a LF bin. Bins
+                should decrease with brightness.
+            obsLF: 1-D array [Mpc^-3 mag^-1]
+                Observed LF.
+            obsLFerr: 1-D array [Mpc^-3 mag^-1]
+                Standard deviation of observed LFs.
+            binCMR: 2-D array [AB mag]
+                Each row specifies lower and upper bounds of a CMR bin. Bins
+                should decrease with brightness.
+            obsCMR: 1-D array
+                Observed CMR. (The code currently use the biweight mean to
+                estimate model CMRs)
+            obsCMRerr: 1-D array
+                Standard deviation of observed CMRs.
+    volume: float [Mpc^3]
+        Volume to estimate model LFs.
+    keys: squence
+        Names to specify observations of each epoch. Should have the same
+        length with ``obsData``.
+    mincnt: int
+        Drop a LF bin if the number of galaxies in the simulation box is below
+        than this value.
+    nan: float
+        Replace the likelihood by this value if there is no galaxies in a LF or
+        CMR bin.
+    blob: bool
+        If true, return model LF and CMR.
+    """
     def __init__(self, obsData, volume, keys = None, mincnt = 5, nan = -1e6, blob = False):
         obsData = self._drop_bright_bins(np.atleast_1d(obsData), volume, mincnt)
         if keys is None:
