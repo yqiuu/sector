@@ -89,17 +89,6 @@ def timing_end():
 # Functions to load galaxy properties                                           #
 #                                                                               #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef void free_gal_params(gal_params_t *galParams):
-    cdef:
-        int iG
-        int nGal = galParams.nGal
-    for iG in xrange(nGal):
-        free(galParams.histories[iG].bursts)
-    free(galParams.histories)
-    free(galParams.ageStep)
-    free(galParams.indices)
-
-
 DEF MAX_NODE = 100000
 
 cdef class galaxy_tree_meraxes:
@@ -329,6 +318,47 @@ cdef void read_gal_params(gal_params_t *galParams, char *fname):
     galParams.histories = histories
 
     timing_end()
+
+
+cdef void free_gal_params(gal_params_t *galParams):
+    cdef:
+        int iG
+        int nGal = galParams.nGal
+    for iG in xrange(nGal):
+        free(galParams.histories[iG].bursts)
+    free(galParams.histories)
+    free(galParams.ageStep)
+    free(galParams.indices)
+
+
+cdef void copy_gal_params(gal_params_t *new, gal_params_t *gp):
+    cdef:
+        size_t size
+        int nGal = gp.nGal
+    # Copy all non-pointer elements
+    memcpy(new, gp, sizeof(gal_params_t))
+    #
+    size = gp.nAgeStep*sizeof(double)
+    new.ageStep = <double*>malloc(size)
+    memcpy(new.ageStep, gp.ageStep, size)
+    #
+    size = nGal*sizeof(int)
+    new.indices = <int*>malloc(size)
+    memcpy(new.indices, gp.indices, size)
+    #
+    size = nGal*sizeof(csp_t)
+    new.histories = <csp_t*>malloc(size)
+    memcpy(new.histories, gp.histories, size)
+    #
+    cdef:
+        int iG
+        csp_t *newH = new.histories
+        csp_t *gpH = gp.histories
+
+    for iG in xrange(nGal):
+        size = gpH[iG].nBurst*sizeof(ssp_t)
+        newH[iG].bursts = <ssp_t*>malloc(size)
+        memcpy(newH[iG].bursts, gpH[iG].bursts, size)
 
 
 def save_star_formation_history(fname, snapList, idxList, h,
