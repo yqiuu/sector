@@ -400,7 +400,7 @@ def save_star_formation_history(fname, snapList, idxList, h,
     # Read and save galaxy merge trees
     for iS in xrange(nSnap):
         sfh = stellar_population(galData, snapList[iS], idxList[iS])
-        save_gal_params(sfh.default, get_output_name(prefix, '.bin', snapList[iS], outPath))
+        save_gal_params(&sfh.default, get_output_name(prefix, '.bin', snapList[iS], outPath))
 
 
 def get_mean_star_formation_rate(sfhPath, double meanAge):
@@ -455,13 +455,11 @@ def get_mean_star_formation_rate(sfhPath, double meanAge):
 
 cdef class stellar_population:
     cdef:
-        gal_params_t *default
-        gal_params_t *modified
+        gal_params_t default
         int nGal
 
     def __cinit__(self, galaxy_tree_meraxes galData, snapshot, gals):
-        cdef gal_params_t *default = <gal_params_t*>malloc(sizeof(gal_params_t))
-
+        cdef gal_params_t *default = &self.default
         if type(gals) is str:
             # Read SFHs from files
             read_gal_params(default, gals)
@@ -482,11 +480,18 @@ cdef class stellar_population:
             default.indices = init_1d_int(gals)
             # Read SFHs
             default.histories = galData.trace_properties(snapshot, gals)
-
-        self.default = default
-        self.modified = NULL
+        #
         self.nGal = default.nGal
 
+
+    def __dealloc__(self):
+        free_gal_params(&self.default)
+
+
+    cdef gal_params_t *pointer(self):
+        return &self.default
+
+    '''
     
     cdef free_modified(self, int mode):
         if self.modified == NULL:
@@ -508,19 +513,6 @@ cdef class stellar_population:
             self.modified = NULL
 
 
-    def __dealloc__(self):
-        cdef:
-            int iG
-            int nGal = self.nGal
-            gal_params_t *default = self.default
-            csp_t *histories = default.histories
-        for iG in xrange(nGal):
-            free(histories[iG].bursts)
-        free(default.histories)
-        free(default.ageStep)
-        free(default.indices)
-        free(default)
-        self.free_modified(1)
 
 
     cdef gal_params_t *pointer(self):
@@ -674,7 +666,7 @@ cdef class stellar_population:
             return np.array(<double[:self.default.nAgeStep]>self.default.ageStep)
         else:
             return np.array(<double[:self.modified.nAgeStep]>self.modified.ageStep)
-
+    '''
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
