@@ -89,6 +89,37 @@ class SFR_model_params(dust_params):
         return dustParams
 
 
+class gas_model_params(dust_params):
+    def __init__(self, **kwargs):
+        super().__init__(
+            ('ColdGas', 'DiskScaleLength'), ('tauISM', 'tauBC', 's1', 's2', 'n', 'tBC', 'a'), **kwargs
+        )
+
+
+    def __call__(self, params, props, z):
+        tauISM, tauBC, s1, s2, n, tBC, a = self.full_params(params)
+        #   -Unit 10^10 h^-1 M_solar
+        gasMass = props['ColdGas']
+        #   -Convert h^-1 Mpc to h^-1 kpc
+        radius = props['DiskScaleLength']*1e3
+        nGal = len(radius)
+        #
+        dustParams = np.zeros(nGal, dtype = self._dtype)
+        # Total optical depth
+        factor = gasMass**s1*radius**s2*exp(-a*z)
+        # ISM optical depth
+        dustParams['tauUV_ISM'] = tauISM*factor
+        # ISM reddening slope
+        dustParams['nISM'] = np.full(nGal, n, dtype = np.double)
+        # Birth cloud optical depth
+        dustParams['tauUV_BC'] = tauBC*factor
+        # Birth cloud reddening slope
+        dustParams['nBC'] = np.full(nGal, n, dtype = np.double)
+        # Birth cloud lifetime
+        dustParams['tBC'] = np.full(nGal, tBC, dtype = np.double)
+        return dustParams
+
+
 def compute_mags_mhysa(
     double[:] inBCFlux, double[:] outBCFlux,
     double[:] centreWaves, double[:] logWaves, int nBeta, int nFlux,
