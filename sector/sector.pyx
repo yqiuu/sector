@@ -240,6 +240,27 @@ cdef class galaxy_tree_meraxes:
         return histories
 
 
+cdef void free_csp(csp_t *histories, int nGal):
+    cdef int iG
+    for iG in xrange(nGal):
+        free(histories[iG].bursts)
+
+
+cdef void copy_csp(csp_t *newH, csp_t *gpH, int nGal):
+    cdef:
+        int iG
+        int nB
+        ssp_t *bursts = NULL
+
+    for iG in xrange(nGal):
+        nB = gpH[iG].nBurst
+        newH[iG].nBurst = nB
+
+        bursts = <ssp_t*>malloc(nB*sizeof(ssp_t))
+        memcpy(bursts, gpH[iG].bursts, nB*sizeof(ssp_t))
+        newH[iG].bursts = bursts
+
+
 cdef void save_gal_params(gal_params_t *galParams, char *fname):
     cdef:
         int iA, iG
@@ -321,11 +342,7 @@ cdef void read_gal_params(gal_params_t *galParams, char *fname):
 
 
 cdef void free_gal_params(gal_params_t *galParams):
-    cdef:
-        int iG
-        int nGal = galParams.nGal
-    for iG in xrange(nGal):
-        free(galParams.histories[iG].bursts)
+    free_csp(galParams.histories, galParams.nGal)
     free(galParams.histories)
     free(galParams.ageStep)
     free(galParams.indices)
@@ -400,7 +417,7 @@ def save_star_formation_history(fname, snapList, idxList, h,
     # Read and save galaxy merge trees
     for iS in xrange(nSnap):
         sfh = stellar_population(galData, snapList[iS], idxList[iS])
-        save_gal_params(&sfh.default, get_output_name(prefix, '.bin', snapList[iS], outPath))
+        save_gal_params(sfh.pointer(), get_output_name(prefix, '.bin', snapList[iS], outPath))
 
 
 def get_mean_star_formation_rate(sfhPath, double meanAge):
@@ -455,41 +472,129 @@ def get_mean_star_formation_rate(sfhPath, double meanAge):
 
 cdef class stellar_population:
     cdef:
-        gal_params_t default
-        int nGal
+        gal_params_t gp
+        csp_t *dfH
+        object data
 
     def __cinit__(self, galaxy_tree_meraxes galData, snapshot, gals):
-        cdef gal_params_t *default = &self.default
+        cdef:
+            gal_params_t *gp = &self.gp
+            int nGal
+
         if type(gals) is str:
             # Read SFHs from files
-            read_gal_params(default, gals)
+            read_gal_params(gp, gals)
         else:
             # Read SFHs from meraxes outputs
             # Read redshift
-            default.z = meraxes.io.grab_redshift(galData.fname, snapshot)
+            gp.z = meraxes.io.grab_redshift(galData.fname, snapshot)
             # Read lookback time
-            default.nAgeStep = snapshot
+            gp.nAgeStep = snapshot
             timeStep = meraxes.io.read_snaplist(galData.fname, galData.h)[2]*1e6 # Convert Myr to yr
             ageStep = np.zeros(snapshot, dtype = 'f8')
             for iA in xrange(snapshot):
                 ageStep[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
-            default.ageStep = init_1d_double(ageStep)
+            gp.ageStep = init_1d_double(ageStep)
             # Store galaxy indices
             gals = np.asarray(gals, dtype = 'i4')
-            default.nGal = len(gals)
-            default.indices = init_1d_int(gals)
+            gp.nGal = len(gals)
+            gp.indices = init_1d_int(gals)
             # Read SFHs
-            default.histories = galData.trace_properties(snapshot, gals)
+            gp.histories = galData.trace_properties(snapshot, gals)
         #
-        self.nGal = default.nGal
+        nGal = gp.nGal
+        self.dfH = <csp_t*>malloc(nGal*sizeof(csp_t))
+        copy_csp(self.dfH, gp.histories, nGal)
+        self.data = None
 
 
     def __dealloc__(self):
-        free_gal_params(&self.default)
+        free_gal_params(&self.gp)
+        free_csp(self.dfH, self.gp.nGal)
+        free(self.dfH)
+
+    
+    def __getitem__(self, idx):
+        if self.data is None:
+            self.build_data()
+        return self.data[idx]
+
+    
+    cdef void merge_csp(self, csp_t *newH, csp_t *gpH, int nMax):
+        cdef:
+            int iB, iNB
+            int nB = gpH.nBurst
+            int nNB = 0
+            ssp_t *bursts = gpH.bursts
+            ssp_t *tmpB = <ssp_t*>malloc(nMax*sizeof(ssp_t))
+            ssp_t *newB = NULL
+            double sfr, metals
+
+        for iNB in xrange(nMax):
+            metals = 0.
+            sfr = 0.
+            for iB in xrange(nB):
+                if bursts[iB].index == iNB:
+                    metals += bursts[iB].metals*bursts[iB].sfr
+                    sfr += bursts[iB].sfr
+            if sfr != 0.:
+                tmpB[nNB].index = iNB
+                tmpB[nNB].metals = metals/sfr
+                tmpB[nNB].sfr = sfr
+                nNB += 1
+        newB = <ssp_t*>malloc(nNB*sizeof(ssp_t))
+        memcpy(newB, tmpB, nNB*sizeof(ssp_t))
+        free(tmpB)
+
+        newH.nBurst = nNB
+        newH.bursts = newB
+
+    
+    cdef build_data(self):
+        cdef:
+            int iG, iB
+            int nGal = self.gp.nGal
+            int nB
+
+            csp_t *pH = self.gp.histories
+            ssp_t *pB = NULL
+
+        data = np.empty(nGal, dtype = object)
+        for iG in xrange(nGal):
+            nB = pH.nBurst
+            pB = pH.bursts
+            arr = np.zeros(nB, dtype = [('index', 'i4'), ('metallicity', 'f8'), ('sfr', 'f8')])
+            for iB in xrange(nB):
+                arr[iB] = pB.index, pB.metals, pB.sfr
+                pB += 1
+            data[iG] = arr[np.argsort(arr["index"])]
+            pH += 1
+        self.data = data
 
 
     cdef gal_params_t *pointer(self):
-        return &self.default
+        return &self.gp
+
+
+    def reconstruct(self, timeGrid = 1):
+        cdef:
+            int iG
+            int nGal = self.gp.nGal
+            int nAgeStep = self.gp.nAgeStep
+            csp_t *newH = self.gp.histories
+            csp_t *dfH = self.dfH
+
+        free_csp(newH, nGal)
+        self.data = None
+        if timeGrid == 0:
+            copy_csp(newH, dfH, nGal)
+            return
+
+        for iG in xrange(nGal):
+            self.merge_csp(newH + iG, dfH + iG, nAgeStep)
+        if timeGrid == 1:
+            return
+                       
 
     '''
     
