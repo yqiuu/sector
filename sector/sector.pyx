@@ -473,13 +473,13 @@ def get_mean_star_formation_rate(sfhPath, double meanAge):
 cdef class stellar_population:
     cdef:
         gal_params_t gp
+        int nDfStep
+        double *dfStep
         csp_t *dfH
         object data
 
     def __cinit__(self, galaxy_tree_meraxes galData, snapshot, gals):
-        cdef:
-            gal_params_t *gp = &self.gp
-            int nGal
+        cdef gal_params_t *gp = &self.gp
 
         if type(gals) is str:
             # Read SFHs from files
@@ -502,9 +502,13 @@ cdef class stellar_population:
             # Read SFHs
             gp.histories = galData.trace_properties(snapshot, gals)
         #
-        nGal = gp.nGal
-        self.dfH = <csp_t*>malloc(nGal*sizeof(csp_t))
-        copy_csp(self.dfH, gp.histories, nGal)
+        self.dfH = <csp_t*>malloc(gp.nGal*sizeof(csp_t))
+        copy_csp(self.dfH, gp.histories, gp.nGal)
+        #
+        self.nDfStep = gp.nAgeStep
+        self.dfStep = <double*>malloc(gp.nAgeStep*sizeof(double))
+        memcpy(self.dfStep, gp.ageStep, gp.nAgeStep*sizeof(double))
+        #
         self.data = None
 
 
@@ -512,6 +516,7 @@ cdef class stellar_population:
         free_gal_params(&self.gp)
         free_csp(self.dfH, self.gp.nGal)
         free(self.dfH)
+        free(self.dfStep)
 
     
     def __getitem__(self, idx):
@@ -520,28 +525,79 @@ cdef class stellar_population:
         return self.data[idx]
 
     
-    cdef void merge_csp(self, csp_t *newH, csp_t *gpH, int nMax):
+    cdef void _update_age_step(self, int nAvg):
+        cdef:
+            int iA
+            int iNS = 0
+            int nAgeStep = self.nDfStep
+            double *ageStep = self.dfStep
+            int nA = nAgeStep/nAvg if nAgeStep%nAvg == 0 else nAgeStep/nAvg + 1
+            double *newStep = <double*>malloc(nA*sizeof(double))
+
+        for iA in xrange(nAgeStep):
+            if (iA + 1)%nAvg == 0 or iA == nAgeStep - 1:
+                newStep[iNS] = ageStep[iA]
+                iNS += 1
+
+        free(self.gp.ageStep)
+        self.gp.ageStep = newStep
+        self.gp.nAgeStep = nA
+
+
+    cdef void _average_csp(self, csp_t *newH, csp_t *gpH, int nMax, int nAvg):
+        cdef:
+            int iA
+            int nDfStep = self.nDfStep
+            double *dfStep = self.dfStep
+            double[:] dfInterval = np.zeros(nDfStep)
+
+        dfInterval[0] = dfStep[0]
+        for iA in xrange(1, nDfStep):
+            dfInterval[iA] = dfStep[iA] - dfStep[iA - 1]
+
+        cdef:
+            double *ageStep = self.gp.ageStep
+            double[:] timeInterval = np.zeros(nMax)
+
+        timeInterval[0] = ageStep[0]
+        for iA in xrange(1, nMax):
+            timeInterval[iA] = ageStep[iA] - ageStep[iA - 1]
+
         cdef:
             int iB, iNB
+            int iLow = 0
+            int iHigh = nAvg
             int nB = gpH.nBurst
             int nNB = 0
+            double *newStep = <double*>malloc(nMax*sizeof(double))
             ssp_t *bursts = gpH.bursts
             ssp_t *tmpB = <ssp_t*>malloc(nMax*sizeof(ssp_t))
             ssp_t *newB = NULL
-            double sfr, metals
+            int index
+            double sfr, metals, dm, dt
 
         for iNB in xrange(nMax):
-            metals = 0.
-            sfr = 0.
+            sfr, metals, dm = 0., 0., 0.
+            dt = timeInterval[iNB]
             for iB in xrange(nB):
-                if bursts[iB].index == iNB:
-                    metals += bursts[iB].metals*bursts[iB].sfr
-                    sfr += bursts[iB].sfr
+                index = bursts[iB].index
+                if index >= iLow and index < iHigh:
+                    dm = bursts[iB].sfr*dfInterval[index]
+                    sfr += dm
+                    metals += bursts[iB].metals*dm
             if sfr != 0.:
                 tmpB[nNB].index = iNB
                 tmpB[nNB].metals = metals/sfr
-                tmpB[nNB].sfr = sfr
+                tmpB[nNB].sfr = sfr/dt
                 nNB += 1
+            newStep[iNB] = dt
+
+            iLow += nAvg
+            iHigh += nAvg
+            if iLow >= nDfStep:
+                break
+            if iHigh > nDfStep:
+                iHigh = nDfStep
         newB = <ssp_t*>malloc(nNB*sizeof(ssp_t))
         memcpy(newB, tmpB, nNB*sizeof(ssp_t))
         free(tmpB)
@@ -576,202 +632,42 @@ cdef class stellar_population:
         return &self.gp
 
 
-    def reconstruct(self, timeGrid = 1):
-        cdef:
-            int iG
-            int nGal = self.gp.nGal
-            int nAgeStep = self.gp.nAgeStep
-            csp_t *newH = self.gp.histories
-            csp_t *dfH = self.dfH
-
-        free_csp(newH, nGal)
+    cdef void _reset_gp(self):
+        cdef gal_params_t *gp = &self.gp
+        free_csp(gp.histories, gp.nGal)
+        free(gp.ageStep)
+        gp.nAgeStep = self.nDfStep
+        gp.ageStep = <double*>malloc(gp.nAgeStep*sizeof(double))
+        memcpy(gp.ageStep, self.dfStep, gp.nAgeStep*sizeof(double))
         self.data = None
-        if timeGrid == 0:
-            copy_csp(newH, dfH, nGal)
-            return
-
-        for iG in xrange(nGal):
-            self.merge_csp(newH + iG, dfH + iG, nAgeStep)
-        if timeGrid == 1:
-            return
-                       
-
-    '''
-    
-    cdef free_modified(self, int mode):
-        if self.modified == NULL:
-            return
-
-        free(self.modified.ageStep)
-
-        cdef:
-            int iG
-            int nGal = self.nGal
-            csp_t *histories = self.modified.histories
-
-        for iG in xrange(nGal):
-            free(histories[iG].bursts)
-        free(histories)
-
-        if mode == 1:
-            free(self.modified)
-            self.modified = NULL
-
-
-
-
-    cdef gal_params_t *pointer(self):
-        if self.modified == NULL:
-            return self.default
-        else:
-            return self.modified
-
-
-    def reconstruct(self, timeGrid = 1):
-        if timeGrid == 0:
-            # Use the default population and free the modified version
-            self.free_modified(1)
-            return
-
-        cdef:
-            int iA, iB, iG
-            int nGal = self.nGal
-
-            gal_params_t *default = self.default
-            csp_t *dfHistories = default.histories
-            int nBurst
-            ssp_t *dfBursts
-
-            gal_params_t *modified = <gal_params_t*>malloc(sizeof(gal_params_t))
-            int nAgeStep = default.nAgeStep
-            double *ageStep = <double*>malloc(nAgeStep*sizeof(double))
-            csp_t *histories = <csp_t*>malloc(nGal*sizeof(csp_t))
-            ssp_t *bursts
-            double metals, sfr
-
-        # Initialise the modified population
-        memcpy(modified, default, sizeof(gal_params_t))
-        memcpy(ageStep, default.ageStep, nAgeStep*sizeof(double))
-
-        # Merge stellar population in the same snapshot
-        for iG in xrange(nGal):
-            nBurst = dfHistories[iG].nBurst
-            dfBursts = dfHistories[iG].bursts
-            bursts = <ssp_t*>malloc(nAgeStep*sizeof(ssp_t))
-            histories[iG].nBurst = nAgeStep
-            histories[iG].bursts = bursts
-            for iA in xrange(nAgeStep):
-                metals = 0.
-                sfr = 0.
-                for iB in xrange(nBurst):
-                    if dfBursts[iB].index == iA:
-                        metals += dfBursts[iB].metals*dfBursts[iB].sfr
-                        sfr += dfBursts[iB].sfr
-                bursts[iA].index = iA
-                if sfr == 0.:
-                    bursts[iA].metals = 0.
-                else:
-                    bursts[iA].metals = metals/sfr
-                bursts[iA].sfr = sfr
-
-        if timeGrid == 1:
-            self.free_modified(0)
-            modified.ageStep = ageStep
-            modified.histories = histories
-            self.modified = modified
-            return
-
-        # Smooth SFHs over given number of snapshots
-        cdef:
-            double[:] timeInterval = np.zeros(nAgeStep)
-
-        timeInterval[0] = ageStep[0]
-        for iA in xrange(1, nAgeStep):
-            timeInterval[iA] = ageStep[iA] - ageStep[iA - 1]
-
-        cdef:
-            int iS
-            int nSmooth = timeGrid
-            csp_t *specHistories = <csp_t*>malloc(nGal*sizeof(csp_t))
-            int nSpecBurst = nAgeStep/nSmooth
-            ssp_t *specBurst
-            double *specAgeStep
-            double dm, dt
-
-        if nAgeStep%nSmooth != 0:
-            nSpecBurst += 1
-        specAgeStep = <double*>malloc(nSpecBurst*sizeof(double))
-        print "nSpecBurst = %d, nSmooth = %d"%(nSpecBurst, nSmooth)
-
-        for iG in xrange(nGal):
-            bursts = histories[iG].bursts
-            specBursts = <ssp_t*>malloc(nSpecBurst*sizeof(ssp_t))
-            specHistories[iG].nBurst = nSpecBurst
-            specHistories[iG].bursts = specBursts
-            for iB in xrange(nSpecBurst):
-                metals, sfr, dt = 0., 0., 0.
-                for iS in xrange(nSmooth):
-                    iA = iB*nSmooth + iS
-                    if iA == nAgeStep:
-                        break
-                    dm = bursts[iA].sfr*timeInterval[iA]
-                    metals += bursts[iA].metals*dm
-                    sfr += dm
-                    dt += timeInterval[iA]
-                specBursts[iB].index = iB
-                if sfr == 0.:
-                    specBursts[iB].metals = 0
-                else:
-                    specBursts[iB].metals = metals/sfr
-                specBursts[iB].sfr = sfr/dt
-                if iB == 0:
-                    specAgeStep[iB] = dt
-                else:
-                    specAgeStep[iB] = specAgeStep[iB - 1] + dt
- 
-        free(ageStep)
-        for iG in xrange(nGal):
-            free(histories[iG].bursts)
-        free(histories)
-
-        self.free_modified(0)
-        modified.nAgeStep = nSpecBurst
-        modified.ageStep = specAgeStep
-        modified.histories = specHistories
-        self.modified = modified
-
-
-    def __getitem__(self, int iG):
-        if iG >= self.nGal:
-            raise IndexError("%d exceeds the maximum number of galaxies"%iG)
-        elif iG < 0:
-            iG = self.nGal + iG
-    
-        cdef csp_t *histories
-        if self.modified == NULL:
-            histories = self.default.histories + iG
-        else:
-            histories = self.modified.histories + iG
-
-        cdef:
-            int iB
-            int nBurst = histories.nBurst
-            ssp_t *pBursts = histories.bursts
-
-        arr = np.zeros(nBurst, dtype = [('index', 'i4'), ('metallicity', 'f4'), ('sfr', 'f4')])
-        for iB in xrange(nBurst):
-            arr[iB] = pBursts.index, pBursts.metals, pBursts.sfr
-            pBursts += 1
-
-        return arr[np.argsort(arr["index"])]
 
 
     def time_step(self):
-        if self.modified == NULL:
-            return np.array(<double[:self.default.nAgeStep]>self.default.ageStep)
+        return np.array(<double[:self.gp.nAgeStep]>self.gp.ageStep)
+
+
+    def reconstruct(self, timeGrid = 1):
+        if timeGrid >= 0 and timeGrid < self.nDfStep:
+            timeGrid = int(timeGrid)
+            self._reset_gp()
         else:
-            return np.array(<double[:self.modified.nAgeStep]>self.modified.ageStep)
-    '''
+            raise ValueError("timeGrid should be between 0 and %d!"%self.nDfStep)
+
+        cdef:
+            int iG
+            int nGal = self.gp.nGal
+            int nAgeStep = self.nDfStep
+            csp_t *newH = self.gp.histories
+            csp_t *dfH = self.dfH
+
+        if timeGrid == 0:
+            copy_csp(newH, dfH, nGal)
+            return
+        if timeGrid > 1:
+            self._update_age_step(timeGrid)
+        for iG in xrange(nGal):
+            self._average_csp(newH + iG, dfH + iG, nAgeStep, timeGrid)
+
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 #                                                                               #
