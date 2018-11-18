@@ -518,33 +518,41 @@ cdef class stellar_population:
         free(self.dfH)
         free(self.dfStep)
 
-    
+
     def __getitem__(self, idx):
         if self.data is None:
             self.build_data()
         return self.data[idx]
 
-    
-    cdef void _update_age_step(self, int nAvg):
+
+    cdef void _update_age_step(self, double[:] newStep):
+        cdef:
+            int nAgeStep = newStep.shape[0]
+            double *ageStep = <double*>malloc(nAgeStep*sizeof(double))
+
+        memcpy(ageStep, &newStep[0], nAgeStep*sizeof(double))
+        free(self.gp.ageStep)
+        self.gp.ageStep = ageStep
+        self.gp.nAgeStep = nAgeStep
+
+
+    cdef _new_age_step(self, int nAvg):
         cdef:
             int iA
             int iNS = 0
-            int nAgeStep = self.nDfStep
-            double *ageStep = self.dfStep
-            int nA = nAgeStep/nAvg if nAgeStep%nAvg == 0 else nAgeStep/nAvg + 1
-            double *newStep = <double*>malloc(nA*sizeof(double))
+            int nDfStep = self.nDfStep
+            double *dfStep = self.dfStep
+            int nA = nDfStep/nAvg if nDfStep%nAvg == 0 else nDfStep/nAvg + 1
+            double[:] newStep = np.zeros(nA)
 
-        for iA in xrange(nAgeStep):
-            if (iA + 1)%nAvg == 0 or iA == nAgeStep - 1:
-                newStep[iNS] = ageStep[iA]
+        for iA in xrange(nDfStep):
+            if (iA + 1)%nAvg == 0 or iA == nDfStep - 1:
+                newStep[iNS] = dfStep[iA]
                 iNS += 1
-
-        free(self.gp.ageStep)
-        self.gp.ageStep = newStep
-        self.gp.nAgeStep = nA
+        return np.asarray(newStep)
 
 
-    cdef void _average_csp(self, csp_t *newH, csp_t *gpH, int nMax, int nAvg):
+    cdef void _average_csp(self, csp_t *newH, csp_t *gpH, int nMax, int nAvg, double[:] newStep):
         cdef:
             int iA
             int nDfStep = self.nDfStep
@@ -555,13 +563,11 @@ cdef class stellar_population:
         for iA in xrange(1, nDfStep):
             dfInterval[iA] = dfStep[iA] - dfStep[iA - 1]
 
-        cdef:
-            double *ageStep = self.gp.ageStep
-            double[:] timeInterval = np.zeros(nMax)
+        cdef double[:] timeInterval = np.zeros(nMax)
 
-        timeInterval[0] = ageStep[0]
+        timeInterval[0] = newStep[0]
         for iA in xrange(1, nMax):
-            timeInterval[iA] = ageStep[iA] - ageStep[iA - 1]
+            timeInterval[iA] = newStep[iA] - newStep[iA - 1]
 
         cdef:
             int iB, iNB
@@ -569,7 +575,6 @@ cdef class stellar_population:
             int iHigh = nAvg
             int nB = gpH.nBurst
             int nNB = 0
-            double *newStep = <double*>malloc(nMax*sizeof(double))
             ssp_t *bursts = gpH.bursts
             ssp_t *tmpB = <ssp_t*>malloc(nMax*sizeof(ssp_t))
             ssp_t *newB = NULL
@@ -590,7 +595,6 @@ cdef class stellar_population:
                 tmpB[nNB].metals = metals/sfr
                 tmpB[nNB].sfr = sfr/dt
                 nNB += 1
-            newStep[iNB] = dt
 
             iLow += nAvg
             iHigh += nAvg
@@ -598,14 +602,18 @@ cdef class stellar_population:
                 break
             if iHigh > nDfStep:
                 iHigh = nDfStep
-        newB = <ssp_t*>malloc(nNB*sizeof(ssp_t))
-        memcpy(newB, tmpB, nNB*sizeof(ssp_t))
+
+        if nNB > 0:
+            newB = <ssp_t*>malloc(nNB*sizeof(ssp_t))
+            memcpy(newB, tmpB, nNB*sizeof(ssp_t))
+            newH.nBurst = nNB
+            newH.bursts = newB
+        else:
+            newH.nBurst = 0
+            newH.bursts = NULL
         free(tmpB)
 
-        newH.nBurst = nNB
-        newH.bursts = newB
 
-    
     cdef build_data(self):
         cdef:
             int iG, iB
@@ -656,17 +664,55 @@ cdef class stellar_population:
         cdef:
             int iG
             int nGal = self.gp.nGal
-            int nAgeStep = self.nDfStep
+            int nAgeStep = 0
             csp_t *newH = self.gp.histories
             csp_t *dfH = self.dfH
+            double[:] newStep
 
         if timeGrid == 0:
             copy_csp(newH, dfH, nGal)
             return
-        if timeGrid > 1:
-            self._update_age_step(timeGrid)
+        if timeGrid == 1:
+            nAgeStep = self.nDfStep
+            newStep = <double[:nAgeStep]>self.dfStep
+        elif timeGrid > 1:
+            newStep = self._new_age_step(timeGrid)
+            nAgeStep = newStep.shape[0]
+            self._update_age_step(newStep)
         for iG in xrange(nGal):
-            self._average_csp(newH + iG, dfH + iG, nAgeStep, timeGrid)
+            self._average_csp(newH + iG, dfH + iG, nAgeStep, timeGrid, newStep)
+
+
+    def mean_SFR(self, meanAge = 100.):
+        cdef:
+            int nAvg = 0
+            double *dfStep = self.dfStep
+        # Find nAvg
+        meanAge *= 1e6 # Convert Myr to yr
+        for nAvg in xrange(self.nDfStep):
+            if dfStep[nAvg] >= meanAge:
+                break
+        if nAvg == 0:
+            raise ValueError("Mean Age is smaller than the first step!")
+        print("Correct meanAge to %.1f Myr."%(dfStep[nAvg - 1]*1e-6))
+        #
+        cdef:
+            int iG
+            int nGal = self.gp.nGal
+            csp_t *newH = <csp_t*>malloc(nGal*sizeof(csp_t))
+            csp_t *dfH = self.dfH
+            double[:] newStep = self._new_age_step(nAvg)
+
+        for iG in xrange(nGal):
+            self._average_csp(newH + iG, dfH + iG, 1, nAvg, newStep)
+
+        meanSFR = np.zeros(nGal)
+        cdef double[:] mv = meanSFR
+        for iG in xrange(nGal):
+            if newH[iG].nBurst > 0:
+                mv[iG] = newH[iG].bursts[0].sfr
+        free(newH)
+        return meanSFR
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -677,7 +723,7 @@ cdef class stellar_population:
 def Lyman_absorption(obsWaves, z):
     """
     Compute the IGM transmission curve from Inoue et al. 2014
-    
+
     Parameters
     ----------
     obsWaves: array_like
