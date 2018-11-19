@@ -3,6 +3,7 @@
 .nfs*
 sector/sector.c
 sector/dust.c
+sector/sfh.c
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
