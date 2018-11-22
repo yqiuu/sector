@@ -2,7 +2,7 @@ from libc.math cimport exp
 from sector cimport *
 
 import numpy as np
-from numpy import isnan
+from numpy import isnan, vectorize
 
 
 def get_dust_params_dtype():
@@ -118,6 +118,48 @@ class gas_model_params(dust_params):
         # Birth cloud lifetime
         dustParams['tBC'] = np.full(nGal, tBC, dtype = np.double)
         return dustParams
+
+
+class DTG_model_params(dust_params):
+    def __init__(self, **kwargs):
+        super().__init__(
+            ('MetalsColdGas', 'ColdGas', 'DiskScaleLength'),
+            ('tauISM', 'tauBC', 's1', 's2', 'n', 'tBC', 'a'),
+            **kwargs
+        )
+
+
+    def __call__(self, params, props, z):
+        tauISM, tauBC, s1, s2, n, tBC, a = self.full_params(params)
+        #   -Unit 10^10 h^-1 M_solar
+        metalsMass = props['MetalsColdGas']
+        gasMass = props['ColdGas']
+        metallicity = self.calc_metallicity(metalsMass, gasMass)
+        #   -Convert h^-1 Mpc to h^-1 kpc
+        radius = props['DiskScaleLength']*1e3
+        nGal = len(radius)
+        #
+        dustParams = np.zeros(nGal, dtype = self._dtype)
+        # Total optical depth
+        factor = metallicity**s1*gasMass*radius**s2*exp(-a*z)
+        # ISM optical depth
+        dustParams['tauUV_ISM'] = tauISM*factor
+        # ISM reddening slope
+        dustParams['nISM'] = np.full(nGal, n, dtype = np.double)
+        # Birth cloud optical depth
+        dustParams['tauUV_BC'] = tauBC*factor
+        # Birth cloud reddening slope
+        dustParams['nBC'] = np.full(nGal, n, dtype = np.double)
+        # Birth cloud lifetime
+        dustParams['tBC'] = np.full(nGal, tBC, dtype = np.double)
+        return dustParams
+
+
+    def calc_metallicity(self, metalsMass, gasMass):
+        cond = gasMass > 0.
+        metallicity = np.zeros(len(gasMass))
+        metallicity[cond] = metalsMass[cond]/gasMass[cond]
+        return metallicity
 
 
 def compute_mags_mhysa(
