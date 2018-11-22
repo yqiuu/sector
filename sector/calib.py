@@ -37,8 +37,11 @@ class likelihood_UV:
     keys: squence
         Names to specify observations of each epoch. Should have the same
         length with ``obsData``.
-    mincnt: int
+    mincntLF: int
         Drop a LF bin if the number of galaxies in the simulation box is below
+        than this value.
+    mincntCMR: int
+        Drop a CMR bin if the number of galaxies in the simulation box is below
         than this value.
     nan: float
         Replace the likelihood by this value if there is no galaxies in a LF or
@@ -46,8 +49,8 @@ class likelihood_UV:
     blob: bool
         If true, return model LF and CMR.
     """
-    def __init__(self, obsData, volume, keys = None, mincnt = 5, nan = -1e6, blob = False):
-        obsData = self._drop_bright_bins(np.atleast_1d(obsData), volume, mincnt)
+    def __init__(self, obsData, volume, keys = None, mincntLF = 5, mincntCMR = 20, nan = -1e6, blob = False):
+        obsData = self._drop_bright_bins(np.atleast_1d(obsData), volume, mincntLF, mincntCMR)
         if keys is None:
             self.obsData = obsData
             self.keys = np.arange(len(obsData))
@@ -62,23 +65,28 @@ class likelihood_UV:
         self.blob = blob
 
 
-    def _drop_bright_bins(self, obsData, volume, mincnt):
+    def _drop_bright_bins(self, obsData, volume, mincntLF, mincntCMR):
         obsData = deepcopy(obsData)
         for d in obsData:
-            cond = np.full(len(d['obsLF']), True)
+            binLF = deepcopy(d['binLF'])
+            condLF = np.full(len(binLF), True)
+            condCMR = np.full(len(binLF), True)
             for iB, ((lower, upper), lf) in enumerate(zip(d['binLF'], d['obsLF'])):
-                if lf*(upper - lower)*volume < mincnt:
-                    cond[iB] = False
+                number = lf*(upper - lower)*volume
+                if number < mincntLF:
+                    condLF[iB] = False
+                if number < mincntCMR:
+                    condCMR[iB] = False
             #
-            d['binLF'] = d['binLF'][cond]
-            d['obsLF'] = d['obsLF'][cond]
-            d['obsLFerr'] = d['obsLFerr'][cond]
+            d['binLF'] = d['binLF'][condLF]
+            d['obsLF'] = d['obsLF'][condLF]
+            d['obsLFerr'] = d['obsLFerr'][condLF]
             # Require that the lower bound of the brighest bin of CMRs be fainter than that of LFs
             # Assume all bins are sorted, and the first bin is brightest.
-            cond = d['binCMR'][:, 0] >= d['binLF'][0, 0]
-            d['binCMR'] = d['binCMR'][cond]
-            d['obsCMR'] = d['obsCMR'][cond]
-            d['obsCMRerr'] = d['obsCMRerr'][cond]
+            condCMR = d['binCMR'][:, 0] >= binLF[condCMR][0, 0]
+            d['binCMR'] = d['binCMR'][condCMR]
+            d['obsCMR'] = d['obsCMR'][condCMR]
+            d['obsCMRerr'] = d['obsCMRerr'][condCMR]
         return obsData
 
 
