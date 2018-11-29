@@ -273,6 +273,65 @@ def save_star_formation_history(fname, snapList, idxList, h, prefix = 'sfh', out
         stellar_population(galData, snapList[iS], idxList[iS]).save(outName)
 
 
+cdef int init_templates_sector(
+    sed_params_t *spectra, gal_params_t *galParams,
+    sedPath, IGM, outType, betaBands, restBands, obsBands, obsFrame):
+    cdef:
+        int c_outType
+        double z = galParams.z
+    # Read raw SED templates
+    init_templates_raw(spectra, os.path.join(sedPath, "sed_library.hdf5"))
+    # Compute the transmission of the IGM
+    if IGM == 'I2014':
+        spectra.igm = 1
+    else:
+        spectra.igm = 0
+    # Generate Filters
+    if outType == 'ph':
+        generate_filters(spectra, outType, [], restBands, obsBands, z, False)
+        nRest = len(restBands)
+        nObs = len(obsBands)
+        c_outType = 0
+    elif outType == 'sp':
+        generate_filters(spectra, outType, [], [], [], z, obsFrame)
+        c_outType = 1
+    elif outType == 'UV slope':
+        generate_filters(spectra, outType, betaBands, [], [], z, False)
+        c_outType = 2
+    else:
+        raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
+    #
+    shrink_templates_raw(spectra, galParams.ageStep[galParams.nAgeStep - 1])
+    return c_outType
+
+
+cdef convert_output(double *c_output, sed_params_t *spectra, int nGal, outType):
+    if outType == 'ph':
+        nCol = spectra.nFlux
+        output = np.asarray(<double[:nGal*nCol]>c_output, dtype = 'f4').reshape(nGal, -1)
+    elif outType == 'sp':
+        nCol = spectra.nWaves
+        output = np.asarray(<double[:nGal*nCol]>c_output, dtype = 'f4').reshape(nGal, -1)
+    elif outType == 'UV slope':
+        nR = 3
+        nFlux = spectra.nFlux
+        output = np.asarray(<double[:nGal*(nFlux + nR)]>c_output, dtype = 'f4')
+        output = np.hstack([
+            output[nGal*nFlux:].reshape(nGal, -1), output[:nGal*nFlux].reshape(nGal, -1)
+        ])
+    return output
+
+
+def postprocess_output(output, h, Om0, z, outType, nRest = 0, nObs = 0, obsFrame = False):
+    cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
+    if outType == 'ph' and nObs > 0:
+        # Add distant modulus for obserer bands
+        output[:, nRest:] += cosmo.distmod(z).value
+    elif outType == 'sp' and obsFrame:
+        factor = 10./cosmo.luminosity_distance(z).to(u.parsec).value
+        output *= factor*factor
+
+
 def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
                       dust = None, IGM = 'I2014', approx = False,
                       outType = 'ph',
@@ -358,10 +417,9 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         this function never overwrites an output which has the same name;
         instead it generates an output with a different name.
     """
-    cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
 
     cdef:
-        int iS, iF, iG
+        int iS, iG
         int nSnap
         int sanpMin = 1
         int snapMax
@@ -380,25 +438,12 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
     if type(gals[0]) is not str:
         galData = galaxy_tree_meraxes(fname, snapMax, h)
 
-    waves = get_wavelength(sedPath)
     cdef:
         sed_params_t spectra
         gal_params_t *galParams
-        double z
-        int nGal
-
-        int nWaves = len(waves)
-        int nRest = 0
-        int nObs = 0
-        int nFlux = 0
-        int c_outType = 0
-
-        int nR = 3
-
         dust_params_t *dustParams = NULL
-
+        int c_outType = 0
         double *c_output
-        double[:] mvOutput
 
     for iS in xrange(nSnap):
         # Read star formation rates and metallcities form galaxy merger trees
@@ -406,81 +451,48 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
         if timeGrid != 0:
             sfh.reconstruct(timeGrid)
         galParams = sfh.pointer()
-        z = galParams.z
-        nGal = galParams.nGal
         # Convert the format of dust parameters
         if dust is not None:
             dustParams = init_dust_parameters(dust[iS])
-        # Compute the transmission of the IGM
-        if IGM == 'I2014':
-            spectra.igm = 1
-        else:
-            spectra.igm = 0
-        # Read raw SED templates
-        init_templates_raw(&spectra, os.path.join(sedPath, "sed_library.hdf5"))
-        # Generate Filters
-        if outType == 'ph':
-            generate_filters(&spectra, outType, [], restBands, obsBands, z, False)
-            nRest = len(restBands)
-            nObs = len(obsBands)
-            nFlux = nRest + nObs
-            c_outType = 0
-        elif outType == 'sp':
-            generate_filters(&spectra, outType, [], [], [], z, obsFrame)
-            nFlux = nWaves
-            c_outType = 1
-        elif outType == 'UV slope':
-            generate_filters(&spectra, outType, betaBands, [], [], z, False)
-            nFlux = spectra.nFlux
-            centreWaves = np.array(<double[:nFlux]>spectra.centreWaves)
-            c_outType = 2
-        else:
-            raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
-        shrink_templates_raw(&spectra, galParams.ageStep[galParams.nAgeStep - 1])
+        # Initialise templates
+        c_outType = init_templates_sector(
+            &spectra, galParams, sedPath, IGM, outType,
+            betaBands, restBands, obsBands, obsFrame
+        )
         # Compute spectra
-        c_output = composite_spectra_cext(&spectra, galParams, dustParams,
-                                         c_outType, <short>approx, nThread)
-        # Save the output to a numpy array
-        if outType == 'UV slope':
-            mvOutput = <double[:nGal*(nFlux + nR)]>c_output
-            output = np.hstack([np.asarray(mvOutput[nGal*nFlux:],
-                                           dtype = 'f4').reshape(nGal, -1),
-                                np.asarray(mvOutput[:nGal*nFlux],
-                                           dtype = 'f4').reshape(nGal, -1)])
-        else:
-            mvOutput = <double[:nGal*nFlux]>c_output
-            output = np.asarray(mvOutput, dtype = 'f4').reshape(nGal, -1)
-        # Convert apparent magnitudes to absolute magnitudes
-        if outType == 'ph' and nObs > 0:
-            output[:, nRest:] += cosmo.distmod(z).value
-        # Convert to observed frame fluxes
-        if outType == 'sp' and obsFrame:
-            factor = 10./cosmo.luminosity_distance(z).to(u.parsec).value
-            output *= factor*factor
-        # Set output column names
-        if outType == 'ph':
-            columns = []
-            for iF in xrange(nRest):
-                columns.append("M%d-%d"%(restBands[iF][0], restBands[iF][1]))
-            for iF in xrange(nObs):
-                columns.append(obsBands[iF][0])
-        elif outType == 'sp':
-            columns = (1. + z)*waves if obsFrame else waves
-        elif outType == 'UV slope':
-            columns = np.append(["beta", "norm", "R"], centreWaves)
-            columns[-1] = "M1600-100"
-        # Save the output to the disk
+        c_output = composite_spectra_cext(
+            &spectra, galParams, dustParams, c_outType, <short>approx, nThread
+        )
+        #
+        nGal = galParams.nGal
+        z = galParams.z
+        output = convert_output(c_output, &spectra, galParams.nGal, outType)
+        postprocess_output(output, h, Om0, z, outType, len(restBands), len(obsBands), obsFrame)
+        # Save output
         if type(gals[0]) is str:
             indices = np.asarray(<int[:nGal]>galParams.indices, dtype = 'i4')
         else:
             indices = gals[iS]
-        DataFrame(output, index = indices, columns = columns).\
-        to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
-
+        if outType == 'ph':
+            columns = []
+            for iF in xrange(len(restBands)):
+                columns.append("M%d-%d"%(restBands[iF][0], restBands[iF][1]))
+            for iF in xrange(len(obsBands)):
+                columns.append(obsBands[iF][0])
+        elif outType == 'sp':
+            waves = np.asarray(<double[:spectra.nWaves]>spectra.waves)
+            columns = (1. + z)*waves if obsFrame else waves
+        elif outType == 'UV slope':
+            centreWaves = np.array(<double[:spectra.nFlux]>spectra.centreWaves)
+            columns = np.append(["beta", "norm", "R"], centreWaves)
+            columns[-1] = "M1600-100"
+        DataFrame(output, index = indices, columns = columns).to_hdf(
+            get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w"
+        )
+        # Prepare return data when computing only one snapshot
         if len(snapList) == 1:
             mags = DataFrame(deepcopy(output), index = indices, columns = columns)
 
-        #free_gal_params(&galParams)
         free(dustParams)
         free_filters(&spectra)
         free(c_output)
