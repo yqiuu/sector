@@ -99,6 +99,7 @@ def get_wavelength(path):
 
 
 cdef void free_raw_spectra(sed_params_t *spectra):
+    free(spectra.Z)
     free(spectra.age)
     free(spectra.waves)
     free(spectra.raw)
@@ -495,9 +496,8 @@ def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
 
         free(dustParams)
         free_filters(&spectra)
+        free_raw_spectra(&spectra)
         free(c_output)
-
-    free_raw_spectra(&spectra)
 
     if len(snapList) == 1:
         return mags
