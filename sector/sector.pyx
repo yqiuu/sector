@@ -153,8 +153,9 @@ def beta_filters():
     return windows
 
 
-cdef void generate_filters(sed_params_t *spectra, outType,
-                           betaBands, restBands, obsBands, z, obsFrame):
+cdef void generate_filters(
+    sed_params_t *spectra, outType, betaBands, restBands, obsBands, z, obsFrame
+):
     cdef:
         double *c_betaBands = NULL
         double *c_restBands = NULL
@@ -172,15 +173,17 @@ cdef void generate_filters(sed_params_t *spectra, outType,
             c_restBands = init_1d_double(restBands)
         nObs = len(obsBands)
         if nObs > 0:
-            trans = np.array([])
-            waves = np.array([])
-            nObsWaves = <int*>malloc(nObs*sizeof(int))
+            allTrans = np.array([])
+            allWaves = np.array([])
+            waves = np.asarray(<double[:spectra.nWaves]>spectra.waves)*(1. + z)
+            nObsWaves = init_1d_int(np.full(nObs, spectra.nWaves, dtype = 'i4'))
             for iF in range(nObs):
-                trans = np.append(trans, obsBands[iF][1][1])
-                waves = np.append(waves, obsBands[iF][1][0])
-                nObsWaves[iF] = len(obsBands[iF][1][0])
-            obsTrans = init_1d_double(trans)
-            obsWaves = init_1d_double(waves)
+                fWaves, fTrans = obsBands[iF][1]
+                trans = np.interp(waves, fWaves, fTrans, left = 0., right = 0.)
+                allTrans = np.append(allTrans, trans)
+                allWaves = np.append(allWaves, waves)
+            obsTrans = init_1d_double(allTrans)
+            obsWaves = init_1d_double(allWaves)
         init_filters(spectra, NULL, 0, c_restBands, nRest, obsTrans, obsWaves, nObsWaves, nObs, z)
         free(c_restBands)
         free(obsTrans)
@@ -276,7 +279,8 @@ def save_star_formation_history(fname, snapList, idxList, h, prefix = 'sfh', out
 
 cdef int init_templates_sector(
     sed_params_t *spectra, gal_params_t *galParams,
-    sedPath, IGM, outType, betaBands, restBands, obsBands, obsFrame):
+    sedPath, IGM, outType, betaBands, restBands, obsBands, obsFrame
+):
     cdef:
         int c_outType
         double z = galParams.z
@@ -333,13 +337,16 @@ def postprocess_output(output, h, Om0, z, outType, nRest = 0, nObs = 0, obsFrame
         output *= factor*factor
 
 
-def composite_spectra(fname, snapList, gals, h, Om0, sedPath,
-                      dust = None, IGM = 'I2014', approx = False,
-                      outType = 'ph',
-                      betaBands = [], restBands = [[1600, 100],], obsBands = [], obsFrame = False,
-                      timeGrid = 0,
-                      prefix = 'mags', outPath = './',
-                      nThread = 1):
+def composite_spectra(
+    fname, snapList, gals, h, Om0, sedPath,
+    dust = None, approx = False, IGM = 'I2014',
+    outType = 'ph',
+    betaBands = [], restBands = [[1600, 100],], obsBands = [],
+    obsFrame = False,
+    timeGrid = 0,
+    prefix = 'mags', outPath = './',
+    nThread = 1
+):
     """
     Main function to calculate galaxy magnitudes and spectra.
 
