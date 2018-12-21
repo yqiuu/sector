@@ -92,7 +92,9 @@ class SFR_model_params(dust_params):
 class gas_model_params(dust_params):
     def __init__(self, **kwargs):
         super().__init__(
-            ('ColdGas', 'DiskScaleLength'), ('tauISM', 'tauBC', 's1', 's2', 'n', 'tBC', 'a'), **kwargs
+            ('ColdGas', 'DiskScaleLength'),
+            ('tauISM', 'tauBC', 's1', 's2', 'n', 'tBC', 'a'),
+            **kwargs
         )
 
 
@@ -158,7 +160,8 @@ class DTG_model_params(dust_params):
     def calc_metallicity(self, metalsMass, gasMass):
         cond = gasMass > 0.
         metallicity = np.zeros(len(gasMass))
-        metallicity[cond] = metalsMass[cond]/gasMass[cond]
+        #   -Convert to Z_solar
+        metallicity[cond] = metalsMass[cond]/gasMass[cond]/0.02
         return metallicity
 
 
