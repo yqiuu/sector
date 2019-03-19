@@ -9,6 +9,8 @@
  * SFHs related                                                                *
  *                                                                             *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+typedef long long llong_t;
+
 typedef struct ssp_t {
     short index;
     float metals;
@@ -27,6 +29,7 @@ typedef struct gal_params_t {
     int nGal;
     int *indices;
     csp_t *histories;
+    llong_t *ids;
 } gal_params_t;
 
 

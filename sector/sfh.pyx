@@ -43,6 +43,15 @@ cdef double *init_1d_double(double[:] memview):
     return p
 
 
+cdef llong_t *init_1d_llong(llong_t[:] memview):
+    cdef:
+        int nSize = memview.shape[0]
+        llong_t *p = <llong_t*>malloc(nSize*sizeof(llong_t))
+        llong_t[:] cMemview = <llong_t[:nSize]>p
+    cMemview[...] = memview
+    return p
+
+
 global sTime
 
 def timing_start(text):
@@ -200,6 +209,12 @@ cdef class galaxy_tree_meraxes:
         return histories
     
     
+    def get_galaxy_ID(self, int tSnap, int[:] indices):
+        return meraxes.io.read_gals(
+            self.fname, tSnap, props = ["ID"], indices = indices, quiet = True
+        )["ID"]
+
+
 cdef void free_csp(csp_t *histories, int nGal):
     cdef int iG
     for iG in xrange(nGal):
@@ -232,6 +247,7 @@ cdef void save_gal_params(gal_params_t *galParams, char *fname):
         int nGal = galParams.nGal
         int *indices = galParams.indices
         csp_t *histories = galParams.histories
+        llong_t *ids = galParams.ids
 
         int nBurst
 
@@ -249,6 +265,8 @@ cdef void save_gal_params(gal_params_t *galParams, char *fname):
         nBurst = histories[iG].nBurst
         fwrite(&nBurst, sizeof(int), 1, fp)
         fwrite(histories[iG].bursts, sizeof(ssp_t), nBurst, fp)
+    # Write ids
+    fwrite(ids, sizeof(llong_t), nGal, fp)
     fclose(fp)
 
 
@@ -263,6 +281,7 @@ cdef void read_gal_params(gal_params_t *galParams, char *fname):
         int nGal
         int *indices
         csp_t *histories
+        llong_t *ids
 
         int nBurst
 
@@ -289,6 +308,9 @@ cdef void read_gal_params(gal_params_t *galParams, char *fname):
         histories[iG].bursts = <ssp_t*>malloc(nBurst*sizeof(ssp_t))
         fread(histories[iG].bursts, sizeof(ssp_t), nBurst, fp)
         pHistories += 1
+    # Read ids
+    ids = <llong_t*>malloc(nGal*sizeof(llong_t))
+    fread(ids, sizeof(llong_t), nGal, fp)
     fclose(fp)
 
     galParams.z = z
@@ -297,6 +319,7 @@ cdef void read_gal_params(gal_params_t *galParams, char *fname):
     galParams.nGal = nGal
     galParams.indices = indices
     galParams.histories = histories
+    galParams.ids = ids
 
     timing_end()
 
@@ -306,6 +329,7 @@ cdef void free_gal_params(gal_params_t *galParams):
     free(galParams.histories)
     free(galParams.ageStep)
     free(galParams.indices)
+    free(galParams.ids)
 
 
 #cdef void copy_gal_params(gal_params_t *new, gal_params_t *gp):
@@ -362,6 +386,8 @@ cdef class stellar_population:
             gp.indices = init_1d_int(gals)
             # Read SFHs
             gp.histories = galData.trace_properties(snapshot, gals)
+            # Read galaxy IDs
+            gp.ids = init_1d_llong(galData.get_galaxy_ID(snapshot, gals))
         #
         self.dfH = <csp_t*>malloc(gp.nGal*sizeof(csp_t))
         copy_csp(self.dfH, gp.histories, gp.nGal)
@@ -384,6 +410,11 @@ cdef class stellar_population:
         if self.data is None:
             self.build_data()
         return self.data[idx]
+
+
+    property ID:
+        def __get__(self):
+            return np.array(<llong_t[:self.gp.nGal]>self.gp.ids)
 
 
     cdef void _update_age_step(self, double[:] newStep):

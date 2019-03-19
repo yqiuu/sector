@@ -494,9 +494,10 @@ def composite_spectra(
             centreWaves = np.array(<double[:spectra.nFlux]>spectra.centreWaves)
             columns = np.append(["beta", "norm", "R"], centreWaves)
             columns[-1] = "M1600-100"
-        DataFrame(output, index = indices, columns = columns).to_hdf(
-            get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w"
-        )
+        df = DataFrame(output, index = indices, columns = columns)
+        df['ID'] = sfh.ID
+        df = df[df.columns[-1:].append(df.columns[:-1])]
+        df.to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
         # Prepare return data when computing only one snapshot
         if len(snapList) == 1:
             mags = DataFrame(deepcopy(output), index = indices, columns = columns)

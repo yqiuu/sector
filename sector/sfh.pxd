@@ -1,4 +1,6 @@
 cdef extern from "clib/sector.h":
+    ctypedef long long llong_t
+
     ctypedef struct ssp_t:
         short index
         float metals
@@ -15,6 +17,7 @@ cdef extern from "clib/sector.h":
         int nGal
         int *indices
         csp_t *histories
+        llong_t *ids
 
 cdef int *init_1d_int(int[:] memview)
 cdef float *init_1d_float(float[:] memview)
