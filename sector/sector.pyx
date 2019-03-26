@@ -337,6 +337,86 @@ def postprocess_output(output, h, Om0, z, outType, nRest = 0, nObs = 0, obsFrame
         output *= factor*factor
 
 
+cdef class sector:
+    cdef:
+        int nSnap
+        int outType
+        object sfh
+        sed_params_t *spectra
+        short approx
+        short nThread
+
+
+    def compute(self, dust = None):
+        cdef:
+            int iS
+            int addDust = 0 if dust is None else 1
+            gal_params_t *galParams = NULL
+            dust_params_t *dustParams = NULL
+            int outType = self.outType
+            int nGal, nCol
+            int nR = 3
+            double *c_output
+
+        output = np.empty(self.nSnap, dtype = object)
+        for iS in xrange(self.nSnap):
+            galParams = (<stellar_population>self.sfh[iS]).pointer()
+            if addDust:
+                dustParams = init_dust_parameters(dust[iS])
+            c_output = composite_spectra_cext(
+                self.spectra + iS, galParams, dustParams, outType, self.approx, self.nThread
+            )
+            #
+            nGal = galParams.nGal
+            if outType == 0: # ph
+                nCol = self.spectra.nFlux
+                output[iS] = np.array(
+                    <double[:nGal*nCol]>c_output, dtype = 'f4'
+                ).reshape(nGal, -1)
+            elif outType == 1: # sp
+                nCol = self.spectra.nWaves
+                output[iS] = np.array(
+                    <double[:nGal*nCol]>c_output, dtype = 'f4'
+                ).reshape(nGal, -1)
+            elif outType == 2: # UV slope
+                nCol = self.spectra.nFlux
+                tmp = np.array(<double[:nGal*(nCol + nR)]>c_output, dtype = 'f4')
+                output[iS] = np.hstack([
+                    tmp[nGal*nCol:].reshape(nGal, -1), tmp[:nGal*nCol].reshape(nGal, -1)
+                ])
+            #
+            free(c_output)
+            free(dustParams)
+        return output
+
+
+    def __cinit__(
+        self, sfh, sedPath, IGM = 'I2014', outType = 'ph', approx = False,
+        betaBands = [], restBands = [[1600., 100.],], obsBands = [], obsFrame = False,
+        nThread = 1
+    ):
+        self.sfh = np.ravel(sfh)
+        self.nSnap = len(self.sfh)
+        self.spectra = <sed_params_t*>malloc(self.nSnap*sizeof(sed_params_t))
+        self.approx = <short>approx
+        self.nThread = <short>nThread
+
+        cdef int iS
+        for iS in xrange(self.nSnap):
+            self.outType = init_templates_sector(
+                self.spectra + iS, (<stellar_population>self.sfh[iS]).pointer(), sedPath,
+                IGM, outType, betaBands, restBands, obsBands, obsFrame
+            )
+            
+
+    def __dealloc__(self):
+        cdef int iS
+        for iS in xrange(self.nSnap):
+            free_filters(self.spectra + iS)
+            free_raw_spectra(self.spectra + iS)
+        free(self.spectra)
+
+
 def composite_spectra(
     fname, snapList, gals, h, Om0, sedPath,
     dust = None, approx = False, IGM = 'I2014',
@@ -447,11 +527,12 @@ def composite_spectra(
         galData = galaxy_tree_meraxes(fname, snapMax, h)
 
     cdef:
-        sed_params_t spectra
-        gal_params_t *galParams
-        dust_params_t *dustParams = NULL
+        sector core
+        sed_params_t *spectra
+        #gal_params_t *galParams
+        #dust_params_t *dustParams = NULL
         int c_outType = 0
-        double *c_output
+        #double *c_output
 
     for iS in xrange(nSnap):
         # Read star formation rates and metallcities form galaxy merger trees
@@ -459,22 +540,17 @@ def composite_spectra(
         if timeGrid != 0:
             sfh.reconstruct(timeGrid)
         galParams = sfh.pointer()
-        # Convert the format of dust parameters
-        if dust is not None:
-            dustParams = init_dust_parameters(dust[iS])
-        # Initialise templates
-        c_outType = init_templates_sector(
-            &spectra, galParams, sedPath, IGM, outType,
-            betaBands, restBands, obsBands, obsFrame
+        core = sector(
+            sfh, sedPath, IGM, outType, approx, betaBands, restBands, obsBands, obsFrame, nThread
         )
-        # Compute spectra
-        c_output = composite_spectra_cext(
-            &spectra, galParams, dustParams, c_outType, <short>approx, nThread
-        )
+        if dust is None:
+            output = core.compute()[0]
+        else:
+            output = core.compute([dust[iS]])[0]
+        spectra = core.spectra
         #
         nGal = galParams.nGal
         z = galParams.z
-        output = convert_output(c_output, &spectra, galParams.nGal, outType)
         postprocess_output(output, h, Om0, z, outType, len(restBands), len(obsBands), obsFrame)
         # Save output
         if type(gals[0]) is str:
@@ -502,10 +578,10 @@ def composite_spectra(
         if len(snapList) == 1:
             mags = DataFrame(deepcopy(output), index = indices, columns = columns)
 
-        free(dustParams)
-        free_filters(&spectra)
-        free_raw_spectra(&spectra)
-        free(c_output)
+        #free(dustParams)
+        #free_filters(&spectra)
+        #free_raw_spectra(&spectra)
+        #free(c_output)
 
     if len(snapList) == 1:
         return mags
