@@ -201,8 +201,6 @@ cdef void generate_filters(
         spectra.centreWaves = NULL
         spectra.logWaves = NULL
     elif outType == "UV slope":
-        if betaBands == []:
-            betaBands = beta_filters()
         c_betaBands = init_1d_double(betaBands.flatten())
         c_restBands = init_1d_double(np.array([1550., 1650.]))
         init_filters(spectra, c_betaBands, len(betaBands), c_restBands, 1, NULL, NULL, NULL, 0, 0.)
@@ -310,52 +308,65 @@ cdef int init_templates_sector(
     return c_outType
 
 
-cdef convert_output(double *c_output, sed_params_t *spectra, int nGal, outType):
-    if outType == 'ph':
-        nCol = spectra.nFlux
-        output = np.asarray(<double[:nGal*nCol]>c_output, dtype = 'f4').reshape(nGal, -1)
-    elif outType == 'sp':
-        nCol = spectra.nWaves
-        output = np.asarray(<double[:nGal*nCol]>c_output, dtype = 'f4').reshape(nGal, -1)
-    elif outType == 'UV slope':
-        nR = 3
-        nFlux = spectra.nFlux
-        output = np.asarray(<double[:nGal*(nFlux + nR)]>c_output, dtype = 'f4')
-        output = np.hstack([
-            output[nGal*nFlux:].reshape(nGal, -1), output[:nGal*nFlux].reshape(nGal, -1)
-        ])
-    return output
-
-
-def postprocess_output(output, h, Om0, z, outType, nRest = 0, nObs = 0, obsFrame = False):
-    cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
-    if outType == 'ph' and nObs > 0:
-        # Add distant modulus for obserer bands
-        output[:, nRest:] += cosmo.distmod(z).value
-    elif outType == 'sp' and obsFrame:
-        factor = 10./cosmo.luminosity_distance(z).to(u.parsec).value
-        output *= factor*factor
-
-
 cdef class sector:
     cdef:
         int nSnap
+        int nRest
+        int nObs
+        int obsFrame
         int outType
+        object cosmo
         object sfh
         sed_params_t *spectra
         short approx
         short nThread
 
 
-    def compute(self, dust = None):
+    property waves:
+        def __get__(self):
+            # Wavelengths are the same for all snapshots
+            return np.array(<double[:self.spectra.nWaves]>self.spectra.waves)
+
+    property centreWaves:
+        def __get__(self):
+            return np.array(<double[:self.spectra.nFlux]>self.spectra.centreWaves)
+
+
+    cdef inline _convert_output(self, double *c_output, sed_params_t *spectra, int nGal):
+        cdef:
+            int nCol
+            int nR = 3
+        if self.outType == 0: # ph
+            nCol = spectra.nFlux
+            output = np.array(<double[:nGal*nCol]>c_output, dtype = 'f4').reshape(nGal, -1)
+        elif self.outType == 1: # sp
+            nCol = spectra.nWaves
+            output = np.array(<double[:nGal*nCol]>c_output, dtype = 'f4').reshape(nGal, -1)
+        elif self.outType == 2: # UV slope
+            nCol = spectra.nFlux
+            output = np.array(<double[:nGal*(nCol + nR)]>c_output, dtype = 'f4')
+            output = np.hstack([
+                output[nGal*nCol:].reshape(nGal, -1), output[:nGal*nCol].reshape(nGal, -1)
+            ])
+        return output   
+
+
+    cdef inline _fix_luminosity_distance(self, output, double z):
+        if self.outType == 1 and self.nObs > 0: # ph
+            output[:, self.nRest:] += self.cosmo.distmod(z).value
+        elif self.outType == 2 and self.obsFrame: # sp
+            factor = 10./self.cosmo.luminosity_distance(z).to(u.parsec).value
+            output *= factor*factor
+
+
+    def run(self, dust = None):
         cdef:
             int iS
             int addDust = 0 if dust is None else 1
+            sed_params_t *pSpectra = self.spectra
             gal_params_t *galParams = NULL
             dust_params_t *dustParams = NULL
-            int outType = self.outType
-            int nGal, nCol
-            int nR = 3
+            int nGal
             double *c_output
 
         output = np.empty(self.nSnap, dtype = object)
@@ -364,39 +375,31 @@ cdef class sector:
             if addDust:
                 dustParams = init_dust_parameters(dust[iS])
             c_output = composite_spectra_cext(
-                self.spectra + iS, galParams, dustParams, outType, self.approx, self.nThread
+                pSpectra, galParams, dustParams, self.outType, self.approx, self.nThread
             )
             #
-            nGal = galParams.nGal
-            if outType == 0: # ph
-                nCol = self.spectra.nFlux
-                output[iS] = np.array(
-                    <double[:nGal*nCol]>c_output, dtype = 'f4'
-                ).reshape(nGal, -1)
-            elif outType == 1: # sp
-                nCol = self.spectra.nWaves
-                output[iS] = np.array(
-                    <double[:nGal*nCol]>c_output, dtype = 'f4'
-                ).reshape(nGal, -1)
-            elif outType == 2: # UV slope
-                nCol = self.spectra.nFlux
-                tmp = np.array(<double[:nGal*(nCol + nR)]>c_output, dtype = 'f4')
-                output[iS] = np.hstack([
-                    tmp[nGal*nCol:].reshape(nGal, -1), tmp[:nGal*nCol].reshape(nGal, -1)
-                ])
+            singleOut = self._convert_output(c_output, pSpectra, galParams.nGal)
+            self._fix_luminosity_distance(singleOut, galParams.z)
+            output[iS] = singleOut
             #
             free(c_output)
             free(dustParams)
+
+            pSpectra += 1
         return output
 
 
     def __cinit__(
-        self, sfh, sedPath, IGM = 'I2014', outType = 'ph', approx = False,
+        self, sfh, sedPath, h, Om0, IGM = 'I2014', outType = 'ph', approx = False,
         betaBands = [], restBands = [[1600., 100.],], obsBands = [], obsFrame = False,
         nThread = 1
     ):
         self.sfh = np.ravel(sfh)
         self.nSnap = len(self.sfh)
+        self.nRest = len(restBands)
+        self.nObs = len(obsBands)
+        self.obsFrame = 1 if obsFrame else 0
+        self.cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
         self.spectra = <sed_params_t*>malloc(self.nSnap*sizeof(sed_params_t))
         self.approx = <short>approx
         self.nThread = <short>nThread
@@ -505,11 +508,12 @@ def composite_spectra(
         this function never overwrites an output which has the same name;
         instead it generates an output with a different name.
     """
+    if betaBands == []:
+        betaBands = beta_filters()
 
     cdef:
         int iS, iG
         int nSnap
-        int sanpMin = 1
         int snapMax
         galaxy_tree_meraxes galData = None
 
@@ -528,11 +532,7 @@ def composite_spectra(
 
     cdef:
         sector core
-        sed_params_t *spectra
-        #gal_params_t *galParams
-        #dust_params_t *dustParams = NULL
-        int c_outType = 0
-        #double *c_output
+        gal_params_t *galParams
 
     for iS in xrange(nSnap):
         # Read star formation rates and metallcities form galaxy merger trees
@@ -541,17 +541,16 @@ def composite_spectra(
             sfh.reconstruct(timeGrid)
         galParams = sfh.pointer()
         core = sector(
-            sfh, sedPath, IGM, outType, approx, betaBands, restBands, obsBands, obsFrame, nThread
+            sfh, sedPath, h, Om0, IGM, outType, approx,
+            betaBands, restBands, obsBands, obsFrame, nThread
         )
         if dust is None:
-            output = core.compute()[0]
+            output = core.run()[0]
         else:
-            output = core.compute([dust[iS]])[0]
-        spectra = core.spectra
+            output = core.run([dust[iS]])[0]
         #
         nGal = galParams.nGal
         z = galParams.z
-        postprocess_output(output, h, Om0, z, outType, len(restBands), len(obsBands), obsFrame)
         # Save output
         if type(gals[0]) is str:
             indices = np.asarray(<int[:nGal]>galParams.indices, dtype = 'i4')
@@ -564,11 +563,10 @@ def composite_spectra(
             for iF in xrange(len(obsBands)):
                 columns.append(obsBands[iF][0])
         elif outType == 'sp':
-            waves = np.asarray(<double[:spectra.nWaves]>spectra.waves)
+            waves = core.waves
             columns = (1. + z)*waves if obsFrame else waves
         elif outType == 'UV slope':
-            centreWaves = np.array(<double[:spectra.nFlux]>spectra.centreWaves)
-            columns = np.append(["beta", "norm", "R"], centreWaves)
+            columns = np.append(["beta", "norm", "R"], core.centreWaves)
             columns[-1] = "M1600-100"
         df = DataFrame(output, index = indices, columns = columns)
         df['ID'] = sfh.ID
@@ -577,11 +575,6 @@ def composite_spectra(
         # Prepare return data when computing only one snapshot
         if len(snapList) == 1:
             mags = DataFrame(deepcopy(output), index = indices, columns = columns)
-
-        #free(dustParams)
-        #free_filters(&spectra)
-        #free_raw_spectra(&spectra)
-        #free(c_output)
 
     if len(snapList) == 1:
         return mags
