@@ -572,12 +572,6 @@ def composite_spectra(
         df['ID'] = sfh.ID
         df = df[df.columns[-1:].append(df.columns[:-1])]
         df.to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
-        # Prepare return data when computing only one snapshot
-        if len(snapList) == 1:
-            mags = DataFrame(deepcopy(output), index = indices, columns = columns)
-
-    if len(snapList) == 1:
-        return mags
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
