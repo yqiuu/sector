@@ -363,58 +363,24 @@ cdef void free_gal_params(gal_params_t *galParams):
 
 
 cdef class stellar_population:
-    def __cinit__(self, galaxy_tree_meraxes galData, snapshot, gals):
-        cdef gal_params_t *gp = &self.gp
-
-        if type(gals) is str:
-            # Read SFHs from files
-            read_gal_params(gp, gals)
-        else:
-            # Read SFHs from meraxes outputs
-            # Read redshift
-            gp.z = meraxes.io.grab_redshift(galData.fname, snapshot)
-            # Read lookback time
-            gp.nAgeStep = snapshot
-            timeStep = meraxes.io.read_snaplist(galData.fname, galData.h)[2]*1e6 # Convert Myr to yr
-            ageStep = np.zeros(snapshot, dtype = 'f8')
-            for iA in xrange(snapshot):
-                ageStep[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
-            gp.ageStep = init_1d_double(ageStep)
-            # Store galaxy indices
-            gals = np.asarray(gals, dtype = 'i4')
-            gp.nGal = len(gals)
-            gp.indices = init_1d_int(gals)
-            # Read SFHs
-            gp.histories = galData.trace_properties(snapshot, gals)
-            # Read galaxy IDs
-            gp.ids = init_1d_llong(galData.get_galaxy_ID(snapshot, gals))
-        #
-        self.dfH = <csp_t*>malloc(gp.nGal*sizeof(csp_t))
-        copy_csp(self.dfH, gp.histories, gp.nGal)
-        #
-        self.nDfStep = gp.nAgeStep
-        self.dfStep = <double*>malloc(gp.nAgeStep*sizeof(double))
-        memcpy(self.dfStep, gp.ageStep, gp.nAgeStep*sizeof(double))
-        #
-        self.data = None
-
-
-    def __dealloc__(self):
-        free_gal_params(&self.gp)
-        free_csp(self.dfH, self.gp.nGal)
-        free(self.dfH)
-        free(self.dfStep)
-
-
-    def __getitem__(self, idx):
-        if self.data is None:
-            self.build_data()
-        return self.data[idx]
-
-
     property ID:
         def __get__(self):
             return np.array(<llong_t[:self.gp.nGal]>self.gp.ids)
+
+
+    property indices:
+        def __get__(self):
+            return np.array(<int[:self.gp.nGal]>self.gp.indices)
+
+
+    property timeStep:
+        def __get__(self):
+            return np.array(<double[:self.gp.nAgeStep]>self.gp.ageStep)
+
+    
+    property z:
+        def __get__(self):
+            return self.gp.z 
 
 
     cdef void _update_age_step(self, double[:] newStep):
@@ -506,7 +472,7 @@ cdef class stellar_population:
         free(tmpB)
 
 
-    cdef build_data(self):
+    cdef void _build_data(self):
         cdef:
             int iG, iB
             int nGal = self.gp.nGal
@@ -527,11 +493,6 @@ cdef class stellar_population:
             pH += 1
         self.data = data
 
-
-    cdef gal_params_t *pointer(self):
-        return &self.gp
-
-
     cdef void _reset_gp(self):
         cdef gal_params_t *gp = &self.gp
         free_csp(gp.histories, gp.nGal)
@@ -542,8 +503,8 @@ cdef class stellar_population:
         self.data = None
 
 
-    def time_step(self):
-        return np.array(<double[:self.gp.nAgeStep]>self.gp.ageStep)
+    cdef gal_params_t *pointer(self):
+        return &self.gp
 
 
     def save(self, name):
@@ -610,7 +571,55 @@ cdef class stellar_population:
         free(newH)
         return meanSFR
 
-    
+
+    def __getitem__(self, idx):
+        if self.data is None:
+            self._build_data()
+        return self.data[idx]
+
+
+    def __cinit__(self, galaxy_tree_meraxes galData, snapshot, gals):
+        cdef gal_params_t *gp = &self.gp
+
+        if type(gals) is str:
+            # Read SFHs from files
+            read_gal_params(gp, gals)
+        else:
+            # Read SFHs from meraxes outputs
+            # Read redshift
+            gp.z = meraxes.io.grab_redshift(galData.fname, snapshot)
+            # Read lookback time
+            gp.nAgeStep = snapshot
+            timeStep = meraxes.io.read_snaplist(galData.fname, galData.h)[2]*1e6 # Convert Myr to yr
+            ageStep = np.zeros(snapshot, dtype = 'f8')
+            for iA in xrange(snapshot):
+                ageStep[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
+            gp.ageStep = init_1d_double(ageStep)
+            # Store galaxy indices
+            gals = np.asarray(gals, dtype = 'i4')
+            gp.nGal = len(gals)
+            gp.indices = init_1d_int(gals)
+            # Read SFHs
+            gp.histories = galData.trace_properties(snapshot, gals)
+            # Read galaxy IDs
+            gp.ids = init_1d_llong(galData.get_galaxy_ID(snapshot, gals))
+        #
+        self.dfH = <csp_t*>malloc(gp.nGal*sizeof(csp_t))
+        copy_csp(self.dfH, gp.histories, gp.nGal)
+        #
+        self.nDfStep = gp.nAgeStep
+        self.dfStep = <double*>malloc(gp.nAgeStep*sizeof(double))
+        memcpy(self.dfStep, gp.ageStep, gp.nAgeStep*sizeof(double))
+        #
+        self.data = None
+
+
+    def __dealloc__(self):
+        free_gal_params(&self.gp)
+        free_csp(self.dfH, self.gp.nGal)
+        free(self.dfH)
+        free(self.dfStep)
+   
 def get_mean_star_formation_rate(sfhPath, double meanAge):
     cdef:
         int iA, iB, iG
