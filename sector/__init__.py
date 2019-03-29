@@ -1,6 +1,4 @@
-__version__ = '0.4.0'
-
-
+from .version import __version__
 from .sector import *
 from . import sfh
 from . import dust
