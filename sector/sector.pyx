@@ -313,11 +313,14 @@ cdef class sector:
         int nSnap
         int nRest
         int nObs
+        object restBands
+        object obsBands
         int obsFrame
         int outType
         object cosmo
         object sfh
         sed_params_t *spectra
+        int pandas
         short approx
         short nThread
 
@@ -351,12 +354,31 @@ cdef class sector:
         return output   
 
 
-    cdef inline _fix_luminosity_distance(self, output, double z):
+    cdef inline void _fix_luminosity_distance(self, output, double z):
         if self.outType == 1 and self.nObs > 0: # ph
             output[:, self.nRest:] += self.cosmo.distmod(z).value
         elif self.outType == 2 and self.obsFrame: # sp
             factor = 10./self.cosmo.luminosity_distance(z).to(u.parsec).value
             output *= factor*factor
+
+
+    cdef inline _convert_pandas(self, output, sfh):
+        indices = sfh.indices
+        if self.outType == 0: # ph
+            columns = []
+            for iF in xrange(self.nRest):
+                columns.append("M%d-%d"%(self.restBands[iF][0], self.restBands[iF][1]))
+            for iF in xrange(self.nObs):
+                columns.append(self.obsBands[iF][0])
+        elif self.outType == 1: # sp
+            columns = (1. + sfh.z)*self.waves if self.obsFrame else self.waves
+        elif self.outType == 2: # UV slope
+            columns = np.append(["beta", "norm", "R"], self.centreWaves)
+            columns[-1] = "M1600-100"
+        df = DataFrame(output, index = indices, columns = columns)
+        df['ID'] = sfh.ID
+        df = df[df.columns[-1:].append(df.columns[:-1])]
+        return df
 
 
     def run(self, dust = None):
@@ -380,7 +402,10 @@ cdef class sector:
             #
             singleOut = self._convert_output(c_output, pSpectra, galParams.nGal)
             self._fix_luminosity_distance(singleOut, galParams.z)
-            output[iS] = singleOut
+            if self.pandas:
+                output[iS] = self._convert_pandas(singleOut, self.sfh[iS])
+            else:
+                output[iS] = singleOut
             #
             free(c_output)
             free(dustParams)
@@ -392,15 +417,18 @@ cdef class sector:
     def __cinit__(
         self, sfh, sedPath, h, Om0, IGM = 'I2014', outType = 'ph', approx = False,
         betaBands = [], restBands = [[1600., 100.],], obsBands = [], obsFrame = False,
-        nThread = 1
+        pandas = False, nThread = 1
     ):
         self.sfh = np.ravel(sfh)
         self.nSnap = len(self.sfh)
         self.nRest = len(restBands)
         self.nObs = len(obsBands)
+        self.restBands = restBands
+        self.obsBands = obsBands
         self.obsFrame = 1 if obsFrame else 0
         self.cosmo = FlatLambdaCDM(H0 = 100.*h, Om0 = Om0)
         self.spectra = <sed_params_t*>malloc(self.nSnap*sizeof(sed_params_t))
+        self.pandas = 1 if pandas else 0
         self.approx = <short>approx
         self.nThread = <short>nThread
 
@@ -509,6 +537,7 @@ def composite_spectra(
         instead it generates an output with a different name.
     """
     if betaBands == []:
+        # Use default windows to fit UV slopes
         betaBands = beta_filters()
 
     cdef:
@@ -530,48 +559,20 @@ def composite_spectra(
     if type(gals[0]) is not str:
         galData = galaxy_tree_meraxes(fname, snapMax, h)
 
-    cdef:
-        sector core
-        gal_params_t *galParams
-
     for iS in xrange(nSnap):
-        # Read star formation rates and metallcities form galaxy merger trees
         sfh = stellar_population(galData, snapList[iS], gals[iS])
         if timeGrid != 0:
             sfh.reconstruct(timeGrid)
-        galParams = sfh.pointer()
         core = sector(
             sfh, sedPath, h, Om0, IGM, outType, approx,
-            betaBands, restBands, obsBands, obsFrame, nThread
+            betaBands, restBands, obsBands, obsFrame, True, nThread
         )
         if dust is None:
             output = core.run()[0]
         else:
             output = core.run([dust[iS]])[0]
         #
-        nGal = galParams.nGal
-        z = galParams.z
-        # Save output
-        if type(gals[0]) is str:
-            indices = np.asarray(<int[:nGal]>galParams.indices, dtype = 'i4')
-        else:
-            indices = gals[iS]
-        if outType == 'ph':
-            columns = []
-            for iF in xrange(len(restBands)):
-                columns.append("M%d-%d"%(restBands[iF][0], restBands[iF][1]))
-            for iF in xrange(len(obsBands)):
-                columns.append(obsBands[iF][0])
-        elif outType == 'sp':
-            waves = core.waves
-            columns = (1. + z)*waves if obsFrame else waves
-        elif outType == 'UV slope':
-            columns = np.append(["beta", "norm", "R"], core.centreWaves)
-            columns[-1] = "M1600-100"
-        df = DataFrame(output, index = indices, columns = columns)
-        df['ID'] = sfh.ID
-        df = df[df.columns[-1:].append(df.columns[:-1])]
-        df.to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
+        output.to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
