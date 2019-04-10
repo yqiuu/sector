@@ -2,7 +2,7 @@
 .tags
 .nfs*
 sector/sector.c
-sector/dust.c
+sector/dust/dust.c
 sector/sfh.c
 
 # Byte-compiled / optimized / DLL files

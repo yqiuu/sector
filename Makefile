@@ -15,7 +15,8 @@ install:
 clean:
 	@rm -f sector/*.so
 	@rm -f sector/sector.c
-	@rm -f sector/dust.c
 	@rm -f sector/sfh.c
+	@rm -f sector/dust/dust.c
+	@rm -f sector/dust/*.so
 	@rm -rf build
 	@rm -rf *.egg-info

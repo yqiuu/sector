@@ -1,8 +1,18 @@
 from libc.math cimport exp
-from sector cimport *
+from ..sector cimport *
 
 import numpy as np
 from numpy import isnan, vectorize
+
+
+__all__ = [
+    'get_dust_params_dtype',
+    'dust_params',
+    'SFR_model_params',
+    'gas_model_params',
+    'DTG_model_params',
+    'compute_mags_mhysa'
+]
 
 
 def get_dust_params_dtype():
@@ -168,7 +178,8 @@ class DTG_model_params(dust_params):
 def compute_mags_mhysa(
     double[:] inBCFlux, double[:] outBCFlux,
     double[:] centreWaves, double[:] logWaves, int nBeta, int nFlux,
-    dust_params_t[:] dustParams):
+    dust_params_t[:] dustParams
+):
     # Add dust
     cdef:
         int iG

@@ -2,7 +2,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from .dust import compute_mags_mhysa
+from .dust.dust import compute_mags_mhysa
 from copy import deepcopy
 from astropy.stats import biweight_location
 
