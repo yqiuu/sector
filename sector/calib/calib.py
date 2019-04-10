@@ -2,9 +2,12 @@ import logging
 import numpy as np
 import pandas as pd
 
-from .dust.dust import compute_mags_mhysa
+from ..dust.dust import compute_mags_mhysa
 from copy import deepcopy
 from astropy.stats import biweight_location
+
+
+__all__ = ['likelihood_UV']
 
 
 class likelihood_UV:
@@ -49,7 +52,9 @@ class likelihood_UV:
     blob: bool
         If true, return model LF and CMR.
     """
-    def __init__(self, obsData, volume, keys = None, mincntLF = 5, mincntCMR = 20, nan = -1e6, blob = False):
+    def __init__(
+        self, obsData, volume, keys = None, mincntLF = 5, mincntCMR = 20, nan = -1e6, blob = False
+    ):
         obsData = self._drop_bright_bins(np.atleast_1d(obsData), volume, mincntLF, mincntCMR)
         if keys is None:
             self.obsData = obsData
@@ -170,6 +175,10 @@ class likelihood_UV:
 try:
     from mhysa import Constraint
 
+
+    __all__.append('LF_CMR')
+
+
     class LF_CMR(Constraint):
         def __init__(
             self, name, snapshots, obsData, dustParams, magCut = -15., label = None,
@@ -195,13 +204,16 @@ try:
 
         def controller_setup(self, sampler):
             # Get magnitude parameters
-            snapshots, nBeta, nRest, tBC, centreWaves, logWaves = sampler.meraxes_globals.mag_params()
+            snapshots, nBeta, nRest, tBC, centreWaves, logWaves = \
+            sampler.meraxes_globals.mag_params()
             # Set lifetime of birth cloud
             dustParams = self.dustParams
             dustParams.set_fixed_params(tBC = tBC)
             #
             if np.sum(np.isnan(dustParams.fixedParams)) != len(self.params):
-                raise ValueError("All parameters in %s should be added!"%dustParams.paramNames.__str__())
+                raise ValueError(
+                    "All parameters in %s should be added!"%dustParams.paramNames.__str__()
+                )
             # Construct the map between snapshots and indices of flux arrays
             snapshots = list(snapshots)
             snapDict = {}
@@ -214,11 +226,14 @@ try:
             # Set likelihood function
             self.lnKwargs['blob'] = True
             self.estimator = likelihood_UV(
-                self.obsData, sampler.meraxes_globals.comoving_volume(), keys = snapshots, **self.lnKwargs
+                self.obsData, sampler.meraxes_globals.comoving_volume(),
+                keys = snapshots, **self.lnKwargs
             )
             # Check if the UV band is right
             if not np.isclose(centreWaves[nBeta], 1600.):
-                raise ValueError("The centre wavelength of the first rest-frame filters should be 1600 angstrom!")
+                raise ValueError(
+                    "The centre wavelength of the first rest-frame filters should be 1600 angstrom!"
+                )
             # Set other attributes
             self.nBeta = nBeta
             self.nFlux = sampler.meraxes_globals.MAGS_N_BANDS
@@ -260,14 +275,18 @@ try:
                 inBCFlux, outBCFlux, gals = self._squeeze_gals(snapshot, gals)
                 # Compute UV properties with dust
                 dustParams = self.dustParams(
-                    [p.current_value for p in self.params], gals, sampler.meraxes_globals.ZZ[snapshot]
+                    [p.current_value for p in self.params], gals,
+                    sampler.meraxes_globals.ZZ[snapshot]
                 )
                 M1600, beta = compute_mags_mhysa(
-                    inBCFlux, outBCFlux, self.centreWaves, self.logWaves, self.nBeta, self.nFlux, dustParams
+                    inBCFlux, outBCFlux, self.centreWaves, self.logWaves,
+                    self.nBeta, self.nFlux, dustParams
                 )
                 # Compute lnlikelihood
                 lnL, blob = self.estimator(M1600, beta, keys = snapshot)
-                logging.debug('[comm %d] :: LF & CMR snapshot=%d lnL=%.2e'%(sampler.i_comm, snapshot, lnL))
+                logging.debug(
+                    '[comm %d] :: LF & CMR snapshot=%d lnL=%.2e'%(sampler.i_comm, snapshot, lnL)
+                )
                 # Save blobs
                 if self.blob is None:
                     self.blob = {}
@@ -276,7 +295,8 @@ try:
                 if self.saveMags:
                     fName = "%s/%s_snap%03d_%s_%d.hdf5"%(
                         self.outPath, self.prefix, snapshot,
-                        '_'.join([str(p.current_value) for p in sampler.iter_all_params()]), sampler.i_comm
+                        '_'.join([str(p.current_value) for p in sampler.iter_all_params()]),
+                        sampler.i_comm
                     )
                     self._save_mags(fName, gals['ID'], M1600, beta)
                     logging.info("[comm %d] :: Save output."%sampler.i_comm)
