@@ -1,8 +1,6 @@
-from cextension cimport *
+from utils cimport *
 
-cdef int *init_1d_int(int[:] memview)
-cdef float *init_1d_float(float[:] memview)
-cdef double *init_1d_double(double[:] memview)
+
 cdef void read_gal_params(gal_params_t *galParams, char *fname)
 cdef void free_gal_params(gal_params_t *galParams)
 

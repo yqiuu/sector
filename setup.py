@@ -3,7 +3,10 @@ from distutils.extension import Extension
 from Cython.Distutils import build_ext
 
 
-exts = [Extension("sector.sfh",
+exts = [Extension("sector.utils",
+                  sources = ["sector/utils.pyx"],
+                  include_dirs = ["sector/"]),
+        Extension("sector.sfh",
                   sources = ["sector/sfh.pyx"],
                   include_dirs = ["sector/"]),
         Extension("sector.sector",

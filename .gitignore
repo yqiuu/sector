@@ -1,9 +1,10 @@
 # project specific
 .tags
 .nfs*
+sector/utils.c
 sector/sector.c
-sector/dust/dust.c
 sector/sfh.c
+sector/dust/dust.c
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

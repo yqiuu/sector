@@ -5,15 +5,16 @@ sector.so: sector/sector.pyx
 
 install:
 	@rm -f sector/*.so
+	@rm -f sector/utils.c
 	@rm -f sector/sector.c
-	@rm -f sector/dust.c
 	@rm -f sector/sfh.c
-	@rm -rf build
-	@rm -rf *.egg-info
+	@rm -f sector/dust/dust.c
+	@rm -f sector/dust/*.so
 	pip install -e . --user
 
 clean:
 	@rm -f sector/*.so
+	@rm -f sector/utils.c
 	@rm -f sector/sector.c
 	@rm -f sector/sfh.c
 	@rm -f sector/dust/dust.c

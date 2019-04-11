@@ -1,19 +1,16 @@
 # cython: c_string_encoding = ascii
 
+from libc.math cimport exp
+from utils cimport *
+from sfh cimport *
+
 import os, sys
 from warnings import warn
 from copy import deepcopy
 
-from libc.stdlib cimport malloc, free
-from libc.stdio cimport *
-from libc.math cimport exp
-from cextension cimport *
-from sfh cimport *
-
 import numpy as np, h5py
 from numpy import isscalar
 from pandas import DataFrame
-
 from astropy.cosmology import FlatLambdaCDM
 from astropy import units as u
 from dragons import meraxes
