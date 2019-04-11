@@ -1,6 +1,24 @@
-from sfh cimport *
-
 cdef extern from "clib/sector.h":
+    ctypedef long long llong_t
+
+    ctypedef struct ssp_t:
+        short index
+        float metals
+        float sfr
+
+    ctypedef struct csp_t:
+        ssp_t *bursts
+        int nBurst
+
+    ctypedef struct gal_params_t:
+        double z
+        int nAgeStep
+        double *ageStep
+        int nGal
+        int *indices
+        csp_t *histories
+        llong_t *ids
+
     ctypedef struct sed_params_t:
         # Raw templates
         int minZ
@@ -45,17 +63,21 @@ cdef extern from "clib/sector.h":
     void add_Lyman_absorption(double *target, double *waves, int nWaves, double z)
     void init_templates_raw(sed_params_t *spectra, char *fName)
     void shrink_templates_raw(sed_params_t *spectra, double maxAge)
-    void init_filters(sed_params_t *spectra,
-                      double *betaBands, int nBeta, double *restBands, int nRest,
-                      double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z)
-    void fit_UV_slope(double *pTarget, double *pFit, int nGal, int nFlux,
-                      double *logWaves, int nFit, int nR)
-
-    void dust_absorption_approx(double *inBCFlux, double *outBCFlux, double *centreWaves, int nFlux,
-                                dust_params_t *dustParams)
+    void init_filters(
+        sed_params_t *spectra, double *betaBands, int nBeta, double *restBands, int nRest,
+        double *obsTrans, double *obsWaves, int *nObsWaves, int nObs, double z
+    )
+    void fit_UV_slope(
+        double *pTarget, double *pFit, int nGal, int nFlux, double *logWaves, int nFit, int nR
+    )
+    void dust_absorption_approx(
+        double *inBCFlux, double *outBCFlux, double *centreWaves, int nFlux,
+        dust_params_t *dustParams
+    )
 
 
 cdef extern from "clib/sector.h" nogil:
-    double *composite_spectra_cext(sed_params_t *spectra,
-                                   gal_params_t *galParams, dust_params_t *dustParams,
-                                   short outType, short approx, short nThread)
+    double *composite_spectra_cext(
+        sed_params_t *spectra, gal_params_t *galParams,
+        dust_params_t *dustParams, short outType, short approx, short nThread
+    )

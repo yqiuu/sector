@@ -7,6 +7,8 @@ from copy import deepcopy
 from libc.stdlib cimport malloc, free
 from libc.stdio cimport *
 from libc.math cimport exp
+from cextension cimport *
+from sfh cimport *
 
 import numpy as np, h5py
 from numpy import isscalar

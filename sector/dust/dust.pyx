@@ -1,5 +1,5 @@
 from libc.math cimport exp
-from ..sector cimport *
+from ..cextension cimport *
 
 import numpy as np
 from numpy import isnan, vectorize
