@@ -35,6 +35,7 @@ cdef class stellar_population:
     cdef void _update_age_step(self, double[:] newStep)
     cdef _new_age_step(self, int nAvg)
     cdef void _average_csp(self, csp_t *newH, csp_t *gpH, int nMax, int nAvg, double[:] newStep)
+    cdef _moment(self, double maxAge, int order)
     cdef void _build_data(self)
     cdef gal_params_t *pointer(self)
     cdef void _reset_gp(self)

@@ -161,8 +161,8 @@ cdef class galaxy_tree_meraxes:
         print "# %.1f MB memory has been allocted"%(totalMemSize/1024./1024.)
         timing_end()
         return histories
-    
-    
+
+
     def get_galaxy_ID(self, int tSnap, int[:] indices):
         return meraxes.io.read_gals(
             self.fname, tSnap, props = ["ID"], indices = indices, quiet = True
@@ -286,36 +286,6 @@ cdef void free_gal_params(gal_params_t *galParams):
     free(galParams.ids)
 
 
-#cdef void copy_gal_params(gal_params_t *new, gal_params_t *gp):
-#    cdef:
-#        size_t size
-#        int nGal = gp.nGal
-#    # Copy all non-pointer elements
-#    memcpy(new, gp, sizeof(gal_params_t))
-#    #
-#    size = gp.nAgeStep*sizeof(double)
-#    new.ageStep = <double*>malloc(size)
-#    memcpy(new.ageStep, gp.ageStep, size)
-#    #
-#    size = nGal*sizeof(int)
-#    new.indices = <int*>malloc(size)
-#    memcpy(new.indices, gp.indices, size)
-#    #
-#    size = nGal*sizeof(csp_t)
-#    new.histories = <csp_t*>malloc(size)
-#    memcpy(new.histories, gp.histories, size)
-#    #
-#    cdef:
-#        int iG
-#        csp_t *newH = new.histories
-#        csp_t *gpH = gp.histories
-#
-#    for iG in xrange(nGal):
-#        size = gpH[iG].nBurst*sizeof(ssp_t)
-#        newH[iG].bursts = <ssp_t*>malloc(size)
-#        memcpy(newH[iG].bursts, gpH[iG].bursts, size)
-
-
 cdef class stellar_population:
     property ID:
         def __get__(self):
@@ -331,10 +301,10 @@ cdef class stellar_population:
         def __get__(self):
             return np.array(<double[:self.gp.nAgeStep]>self.gp.ageStep)
 
-    
+
     property z:
         def __get__(self):
-            return self.gp.z 
+            return self.gp.z
 
 
     cdef void _update_age_step(self, double[:] newStep):
@@ -426,6 +396,62 @@ cdef class stellar_population:
         free(tmpB)
 
 
+    cdef _moment(self, double maxAge, int order):
+        """Compute the n-th moment of the star formation history.
+
+           Parameters
+           ----------
+           maxAge: double
+               Upper limit of the integral. It should be in a unit of yr.
+           order: int
+               Order of the moment.
+
+           Returns
+           -------
+           res: ndarray
+               A 1-D array which stores the results.
+        """
+        cdef:
+            int iG, iB
+
+            int nAgeStep = self.gp.nAgeStep
+            double *ageStep = self.gp.ageStep
+            int nGal = self.gp.nGal
+            csp_t *gpH = self.gp.histories
+            int nBurst
+            ssp_t *bursts
+            int index
+
+            int slope = order + 1
+            double tLower
+            double tUpper
+
+            double[:] res = np.zeros(nGal)
+
+        if (maxAge > ageStep[nAgeStep - 1]):
+            raise ValueError("Maximum timestep is exceeded!")
+
+        for iG in xrange(nGal):
+            nBurst = gpH[iG].nBurst
+            bursts = gpH[iG].bursts
+            I = 0.
+            for iB in xrange(nBurst):
+                index = bursts[iB].index
+                if index == 0:
+                    tLower = 0.
+                else:
+                    tLower = ageStep[index - 1]
+                tUpper = ageStep[index]
+                if maxAge < tLower:
+                    continue
+                elif maxAge < tUpper:
+                    tUpper = maxAge
+                I += bursts[iB].sfr*(tUpper**slope - tLower**slope)/slope
+            res[iG] = I
+
+        return np.asarray(res)
+
+
     cdef void _build_data(self):
         cdef:
             int iG, iB
@@ -495,35 +521,8 @@ cdef class stellar_population:
 
 
     def mean_SFR(self, meanAge = 100.):
-        cdef:
-            int nAvg = 0
-            double *dfStep = self.dfStep
-        # Find nAvg
         meanAge *= 1e6 # Convert Myr to yr
-        for nAvg in xrange(self.nDfStep):
-            if dfStep[nAvg] >= meanAge:
-                break
-        if nAvg == 0:
-            raise ValueError("Mean Age is smaller than the first step!")
-        print("Correct meanAge to %.1f Myr."%(dfStep[nAvg - 1]*1e-6))
-        #
-        cdef:
-            int iG
-            int nGal = self.gp.nGal
-            csp_t *newH = <csp_t*>malloc(nGal*sizeof(csp_t))
-            csp_t *dfH = self.dfH
-            double[:] newStep = self._new_age_step(nAvg)
-
-        for iG in xrange(nGal):
-            self._average_csp(newH + iG, dfH + iG, 1, nAvg, newStep)
-
-        meanSFR = np.zeros(nGal)
-        cdef double[:] mv = meanSFR
-        for iG in xrange(nGal):
-            if newH[iG].nBurst > 0:
-                mv[iG] = newH[iG].bursts[0].sfr
-        free(newH)
-        return meanSFR
+        return self._moment(meanAge, 0)/meanAge
 
 
     def __getitem__(self, idx):
@@ -573,52 +572,3 @@ cdef class stellar_population:
         free_csp(self.dfH, self.gp.nGal)
         free(self.dfH)
         free(self.dfStep)
-   
-def get_mean_star_formation_rate(sfhPath, double meanAge):
-    cdef:
-        int iA, iB, iG
-        gal_params_t galParams
-        int nMaxStep = 0
-        int nAgeStep
-        double *ageStep
-        int nGal
-        csp_t *pHistories
-        int nBurst
-        ssp_t *pBursts
-        short index
-        double dt, totalMass
-        double[:] meanSFR
-    # Read galaxy parameters
-    read_gal_params(&galParams, sfhPath)
-    # Find nMaxStep
-    meanAge *= 1e6 # Convert Myr to yr
-    nAgeStep = galParams.nAgeStep
-    ageStep = galParams.ageStep
-    for nMaxStep in xrange(nAgeStep):
-        if ageStep[nMaxStep] >= meanAge:
-            break
-    if nMaxStep == 0:
-        raise ValueError("Mean age is smaller the first step")
-    meanAge = ageStep[nMaxStep - 1]
-    print "Correct meanAge to %.1f Myr"%(meanAge*1e-6)
-    # Compute mean SFR
-    nGal = galParams.nGal
-    pHistories = galParams.histories
-    meanSFR = np.zeros(nGal, dtype = 'f8')
-    for iG in xrange(nGal):
-        nBurst = pHistories.nBurst
-        pBursts = pHistories.bursts
-        totalMass = 0.
-        for iB in xrange(nBurst):
-            index = pBursts.index
-            if index < nMaxStep:
-                if index == 0:
-                    dt = ageStep[0]
-                else:
-                    dt = ageStep[index] - ageStep[index - 1]
-                totalMass += pBursts.sfr*dt
-            pBursts += 1
-        meanSFR[iG] = totalMass/meanAge
-        pHistories += 1
-    return DataFrame(np.asarray(meanSFR), index = np.asarray(<int[:nGal]>galParams.indices),
-                     columns = ["MeanSFR"])
