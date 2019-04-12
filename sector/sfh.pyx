@@ -531,14 +531,17 @@ cdef class stellar_population:
         return self.data[idx]
 
 
-    def __cinit__(self, galaxy_tree_meraxes galData, snapshot, gals):
-        cdef gal_params_t *gp = &self.gp
+    def __cinit__(self, gals, snapshot = None, indices = None):
+        cdef:
+            gal_params_t *gp = &self.gp
+            galaxy_tree_meraxes galData = None
 
-        if type(gals) is str:
+        if isinstance(gals, str):
             # Read SFHs from files
             read_gal_params(gp, gals)
         else:
             # Read SFHs from meraxes outputs
+            galData = <galaxy_tree_meraxes>gals
             # Read redshift
             gp.z = meraxes.io.grab_redshift(galData.fname, snapshot)
             # Read lookback time
@@ -549,13 +552,13 @@ cdef class stellar_population:
                 ageStep[iA] = timeStep[snapshot - iA - 1] - timeStep[snapshot]
             gp.ageStep = init_1d_double(ageStep)
             # Store galaxy indices
-            gals = np.asarray(gals, dtype = 'i4')
-            gp.nGal = len(gals)
-            gp.indices = init_1d_int(gals)
+            indices = np.asarray(indices, dtype = 'i4')
+            gp.nGal = len(indices)
+            gp.indices = init_1d_int(indices)
             # Read SFHs
-            gp.histories = galData.trace_properties(snapshot, gals)
+            gp.histories = galData.trace_properties(snapshot, indices)
             # Read galaxy IDs
-            gp.ids = init_1d_llong(galData.get_galaxy_ID(snapshot, gals))
+            gp.ids = init_1d_llong(galData.get_galaxy_ID(snapshot, indices))
         #
         self.dfH = <csp_t*>malloc(gp.nGal*sizeof(csp_t))
         copy_csp(self.dfH, gp.histories, gp.nGal)

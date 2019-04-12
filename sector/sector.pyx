@@ -555,11 +555,15 @@ def composite_spectra(
         nSnap = len(snapList)
 
     # If SFHs are not from files, load outputs from meraxes.
-    if type(gals[0]) is not str:
+    fromFile = isinstance(gals[0], str)
+    if not fromFile:
         galData = galaxy_tree_meraxes(fname, snapMax, h)
 
     for iS in xrange(nSnap):
-        sfh = stellar_population(galData, snapList[iS], gals[iS])
+        if fromFile:
+            sfh = stellar_population(gals[iS], None, None)
+        else:
+            sfh = stellar_population(galData, snapList[iS], gals[iS])
         if timeGrid != 0:
             sfh.reconstruct(timeGrid)
         core = sector(
