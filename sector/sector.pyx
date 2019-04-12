@@ -346,9 +346,9 @@ cdef class sector:
 
 
     cdef inline void _fix_luminosity_distance(self, output, double z):
-        if self.outType == 1 and self.nObs > 0: # ph
+        if self.outType == 0 and self.nObs > 0: # ph
             output[:, self.nRest:] += self.cosmo.distmod(z).value
-        elif self.outType == 2 and self.obsFrame: # sp
+        elif self.outType == 1 and self.obsFrame: # sp
             factor = 10./self.cosmo.luminosity_distance(z).to(u.parsec).value
             output *= factor*factor
 
