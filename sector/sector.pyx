@@ -254,22 +254,14 @@ def save_star_formation_history(fname, snapList, idxList, h, prefix = 'sfh', out
     outPath: str
         Path to the output.
     """
-    cdef:
-        int iS, nSnap
-        int snap, snapMax, snapMin
-        stellar_population sfh
-
     if isscalar(snapList):
-        snapMax = snapList
-        nSnap = 1
         snapList = [snapList]
         idxList = [idxList]
-    else:
-        snapMax = max(snapList)
-        nSnap = len(snapList)
+    snapMax = max(snapList)
+
     cdef galaxy_tree_meraxes galData = galaxy_tree_meraxes(fname, snapMax, h)
     # Read and save galaxy merge trees
-    for iS in xrange(nSnap):
+    for iS in xrange(len(snapList)):
         outName = get_output_name(prefix, '.bin', snapList[iS], outPath)
         stellar_population(galData, snapList[iS], idxList[iS]).save(outName)
 
@@ -539,27 +531,18 @@ def composite_spectra(
         # Use default windows to fit UV slopes
         betaBands = beta_filters()
 
-    cdef:
-        int iS, iG
-        int nSnap
-        int snapMax
-        galaxy_tree_meraxes galData = None
-
     if isscalar(snapList):
-        snapMax = snapList
-        nSnap = 1
         snapList = [snapList]
         gals = [gals]
-    else:
-        snapMax = max(snapList)
-        nSnap = len(snapList)
+    snapMax = max(snapList)
 
     # If SFHs are not from files, load outputs from meraxes.
+    cdef galaxy_tree_meraxes galData = None
     fromFile = isinstance(gals[0], str)
     if not fromFile:
         galData = galaxy_tree_meraxes(fname, snapMax, h)
 
-    for iS in xrange(nSnap):
+    for iS in xrange(len(snapList)):
         if fromFile:
             sfh = stellar_population(gals[iS], None, None)
         else:
