@@ -241,8 +241,6 @@ cdef void read_gal_params(gal_params_t *galParams, char *fname):
 
     timing_start("# Read galaxy properties")
     fp = fopen(fname, 'rb')
-    if fp == NULL:
-        raise IOError("Fail to open the input file")
     # Read redshift
     fread(&z, sizeof(double), 1, fp)
     # Read ageStep
@@ -537,6 +535,7 @@ cdef class stellar_population:
             galaxy_tree_meraxes galData = None
 
         if isinstance(gals, str):
+            with open(gals, 'rb'): pass
             # Read SFHs from files
             read_gal_params(gp, gals)
         else:
