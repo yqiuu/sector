@@ -274,7 +274,7 @@ cdef int init_templates_sector(
         int c_outType
         double z = galParams.z
     # Read raw SED templates
-    init_templates_raw(spectra, os.path.join(sedPath, "sed_library.hdf5"))
+    init_templates_raw(spectra, sedPath)
     # Compute the transmission of the IGM
     if IGM == 'I2014':
         spectra.igm = 1
@@ -422,6 +422,9 @@ cdef class sector:
         self.pandas = 1 if pandas else 0
         self.approx = <short>approx
         self.nThread = <short>nThread
+
+        sedPath = os.path.join(sedPath, "sed_library.hdf5")
+        with open(sedPath, 'rb'): pass # Detect IOerror
 
         cdef int iS
         for iS in xrange(self.nSnap):
