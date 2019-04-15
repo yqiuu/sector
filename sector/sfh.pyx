@@ -285,6 +285,31 @@ cdef void free_gal_params(gal_params_t *galParams):
 
 
 cdef class stellar_population:
+    """
+    An object to store, analyse and manipulate star formation histories.
+
+    Parameters
+    ----------
+    gals: object
+        A string which specifies the file of star formation histories or a
+        ``galaxy_tree_meraxes`` instance.
+    snapshot: int
+        Snapshot to be read if ``gals`` is a ``galaxy_tree_meraxes`` instance.
+    indices: 1-D array
+        Galaxy indices to be read if ``gals`` is a ``galaxy_tree_meraxes``
+        instance.
+
+    Attributes
+    ----------
+    ID: 1-D array
+        Galaxy IDs.
+    indices: 1-D array
+        Galaxy indices.
+    timeStep: 1-D array
+        Upper bounds of the simulation time step.
+    z: float
+        Redshift.
+    """
     property ID:
         def __get__(self):
             return np.array(<llong_t[:self.gp.nGal]>self.gp.ids)
@@ -395,19 +420,20 @@ cdef class stellar_population:
 
 
     cdef _moment(self, double maxAge, int order):
-        """Compute the n-th moment of the star formation history.
+        """
+        Compute the n-th moment of the star formation histories.
 
-           Parameters
-           ----------
-           maxAge: double
-               Upper limit of the integral. It should be in a unit of yr.
-           order: int
-               Order of the moment.
+        Parameters
+        ----------
+        maxAge: double
+            Upper limit of the integral. It should be in a unit of yr.
+        order: int
+            Order of the moment.
 
-           Returns
-           -------
-           res: ndarray
-               A 1-D array which stores the results.
+        Returns
+        -------
+        res: ndarray
+            A 1-D array which stores the results.
         """
         cdef:
             int iG, iB
@@ -490,6 +516,18 @@ cdef class stellar_population:
 
 
     def reconstruct(self, timeGrid = 1):
+        """
+        Average the star formation histories over given number of snapshot.
+
+        Parameters
+        ----------
+        timeGrid: int
+            Number of snapshot to average.
+
+            If 0, recover the original star formation histories.
+
+            If 1, merge all starbursts at the same snapshot.
+        """
         if timeGrid >= 0 and timeGrid < self.nDfStep:
             timeGrid = int(timeGrid)
             self._reset_gp()
@@ -527,6 +565,10 @@ cdef class stellar_population:
         if self.data is None:
             self._build_data()
         return self.data[idx]
+
+
+    def __init__(self, gals, snapshot = None, indices = None):
+        pass
 
 
     def __cinit__(self, gals, snapshot = None, indices = None):
