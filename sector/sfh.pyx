@@ -239,7 +239,6 @@ cdef void read_gal_params(gal_params_t *galParams, char *fname):
 
         int nBurst
 
-    timing_start("# Read galaxy properties")
     fp = fopen(fname, 'rb')
     # Read redshift
     fread(&z, sizeof(double), 1, fp)
@@ -272,8 +271,6 @@ cdef void read_gal_params(gal_params_t *galParams, char *fname):
     galParams.indices = indices
     galParams.histories = histories
     galParams.ids = ids
-
-    timing_end()
 
 
 cdef void free_gal_params(gal_params_t *galParams):
