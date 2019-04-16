@@ -302,7 +302,7 @@ cdef class stellar_population:
         Galaxy IDs.
     indices: 1-D array
         Galaxy indices.
-    timeStep: 1-D array
+    timeStep: 1-D array [yr]
         Upper bounds of the simulation time step.
     z: float
         Redshift.
