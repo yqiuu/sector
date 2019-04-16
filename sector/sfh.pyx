@@ -553,9 +553,45 @@ cdef class stellar_population:
             self._average_csp(newH + iG, dfH + iG, nAgeStep, timeGrid, newStep)
 
 
-    def mean_SFR(self, meanAge = 100.):
-        meanAge *= 1e6 # Convert Myr to yr
+    def mean_star_formation_rate(self, meanAge = 100e6):
+        """
+        Compute mean star formation rates over a given time scale.
+
+        Parameters
+        ----------
+        meanAge: float [yr]
+            Time scale of the star formation rates.
+
+        Returns
+        -------
+        1-D array [M_solar/yr]
+            Mean star formation rates.
+        """
         return self._moment(meanAge, 0)/meanAge
+
+
+    def net_stellar_mass(self):
+        """
+        Compute stellar masses without mass loss due to supernovae.
+
+        Returns
+        -------
+        1-D array [M_solar]
+            Net stellar masses.
+        """
+        return self._moment(self.gp.ageStep[self.gp.nAgeStep - 1], 0)
+
+
+    def mass_weighted_age(self):
+        """
+        Compute mass weighted ages.
+
+        Returns
+        -------
+        1-D array [yr]
+            Mass weighted ages.
+        """
+        return self._moment(self.gp.ageStep[self.gp.nAgeStep - 1], 1)/self.net_stellar_mass()
 
 
     def __getitem__(self, idx):
