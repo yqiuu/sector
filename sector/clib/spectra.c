@@ -437,3 +437,20 @@ void init_templates_working(sed_params_t *spectra, csp_t *pHistories,
     free(ZFlag);
     free(refSpectra);
 }
+
+
+void free_templates_raw(sed_params_t *spectra) {
+    free(spectra->Z);
+    free(spectra->age);
+    free(spectra->waves);
+    free(spectra->raw);
+}
+
+
+void free_filters(sed_params_t *spectra) {
+    free(spectra->nFilterWaves);
+    free(spectra->filterWaves);
+    free(spectra->filters);
+    free(spectra->centreWaves);
+    free(spectra->logWaves);
+}

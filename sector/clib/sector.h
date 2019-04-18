@@ -105,6 +105,8 @@ void init_filters(sed_params_t *spectra,
 void init_templates_integrated(sed_params_t *spectra);
 void init_templates_working(sed_params_t *spectra, csp_t *pHistories,
                                    dust_params_t *dustParams, int iG);
+void free_templates_raw(sed_params_t *spectra);
+void free_filters(sed_params_t *spectra);
 #endif
 
 

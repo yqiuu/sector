@@ -74,6 +74,8 @@ cdef extern from "clib/sector.h":
         double *inBCFlux, double *outBCFlux, double *centreWaves, int nFlux,
         dust_params_t *dustParams
     )
+    void free_templates_raw(sed_params_t *spectra)
+    void free_filters(sed_params_t *spectra)
 
 
 cdef extern from "clib/sector.h" nogil:

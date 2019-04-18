@@ -17,7 +17,6 @@ from dragons import meraxes
 __all__ = [
     'save_star_formation_history',
     'Lyman_absorption',
-    'get_wavelength',
     'HST_filters',
     'beta_filters',
     'composite_spectra',
@@ -54,49 +53,6 @@ def Lyman_absorption(obsWaves, z):
         int nWaves = len(trans)
     add_Lyman_absorption(&mvTrans[0], &mvObsWaves[0], nWaves, <double>z)
     return trans
-
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-#                                                                               #
-# Functions about ISM absorptionb                                               #
-#                                                                               #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef dust_params_t *init_dust_parameters(dust):
-    cdef:
-        int iG
-        int nGal = len(dust)
-        double[:, ::1] mvDustParams = np.array(dust)
-        dust_params_t *dustParams = <dust_params_t*>malloc(nGal*sizeof(dust_params_t))
-        dust_params_t *pDustParams = dustParams
-
-    for iG in xrange(nGal):
-        pDustParams.tauUV_ISM = mvDustParams[iG, 0]
-        pDustParams.nISM = mvDustParams[iG, 1]
-        pDustParams.tauUV_BC = mvDustParams[iG, 2]
-        pDustParams.nBC = mvDustParams[iG, 3]
-        pDustParams.tBC = mvDustParams[iG, 4]
-        pDustParams += 1
-
-    return dustParams
-
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-#                                                                               #
-# Functions to read SED templates                                               #
-#                                                                               #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-def get_wavelength(path):
-    #=====================================================================
-    # Return wavelengths of SED templates in a unit of angstrom
-    #=====================================================================
-    return np.array(h5py.File(os.path.join(path, "sed_library.hdf5"), "r").get("waves"))
-
-
-cdef void free_raw_spectra(sed_params_t *spectra):
-    free(spectra.Z)
-    free(spectra.age)
-    free(spectra.waves)
-    free(spectra.raw)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -145,6 +101,30 @@ def beta_filters():
                         [1930., 1950.],
                         [2400., 2580.]])
     return windows
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#                                                                               #
+# Primary functions                                                             #
+#                                                                               #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+cdef dust_params_t *init_dust_parameters(dust):
+    cdef:
+        int iG
+        int nGal = len(dust)
+        double[:, ::1] mvDustParams = np.array(dust)
+        dust_params_t *dustParams = <dust_params_t*>malloc(nGal*sizeof(dust_params_t))
+        dust_params_t *pDustParams = dustParams
+
+    for iG in xrange(nGal):
+        pDustParams.tauUV_ISM = mvDustParams[iG, 0]
+        pDustParams.nISM = mvDustParams[iG, 1]
+        pDustParams.tauUV_BC = mvDustParams[iG, 2]
+        pDustParams.nBC = mvDustParams[iG, 3]
+        pDustParams.tBC = mvDustParams[iG, 4]
+        pDustParams += 1
+
+    return dustParams
 
 
 cdef void generate_filters(
@@ -202,18 +182,39 @@ cdef void generate_filters(
         free(c_restBands)
 
 
-cdef void free_filters(sed_params_t *spectra):
-    free(spectra.nFilterWaves)
-    free(spectra.filterWaves)
-    free(spectra.filters)
-    free(spectra.centreWaves)
-    free(spectra.logWaves)
+cdef int init_templates_sector(
+    sed_params_t *spectra, gal_params_t *galParams,
+    sedPath, IGM, outType, betaBands, restBands, obsBands, obsFrame
+):
+    cdef:
+        int c_outType
+        double z = galParams.z
+    # Read raw SED templates
+    init_templates_raw(spectra, sedPath)
+    # Compute the transmission of the IGM
+    if IGM == 'I2014':
+        spectra.igm = 1
+    else:
+        spectra.igm = 0
+    # Generate Filters
+    if outType == 'ph':
+        generate_filters(spectra, outType, [], restBands, obsBands, z, False)
+        nRest = len(restBands)
+        nObs = len(obsBands)
+        c_outType = 0
+    elif outType == 'sp':
+        generate_filters(spectra, outType, [], [], [], z, obsFrame)
+        c_outType = 1
+    elif outType == 'UV slope':
+        generate_filters(spectra, outType, betaBands, [], [], z, False)
+        c_outType = 2
+    else:
+        raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
+    #
+    shrink_templates_raw(spectra, galParams.ageStep[galParams.nAgeStep - 1])
+    return c_outType
 
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-#                                                                               #
-# Primary functions                                                             #
-#                                                                               #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
 def get_output_name(prefix, postfix, snap, path):
     #=====================================================================
     # Function to generate the name of the output
@@ -259,39 +260,6 @@ def save_star_formation_history(fname, snapList, idxList, h, prefix = 'sfh', out
     for iS in xrange(len(snapList)):
         outName = get_output_name(prefix, '.bin', snapList[iS], outPath)
         stellar_population(galData, snapList[iS], idxList[iS]).save(outName)
-
-
-cdef int init_templates_sector(
-    sed_params_t *spectra, gal_params_t *galParams,
-    sedPath, IGM, outType, betaBands, restBands, obsBands, obsFrame
-):
-    cdef:
-        int c_outType
-        double z = galParams.z
-    # Read raw SED templates
-    init_templates_raw(spectra, sedPath)
-    # Compute the transmission of the IGM
-    if IGM == 'I2014':
-        spectra.igm = 1
-    else:
-        spectra.igm = 0
-    # Generate Filters
-    if outType == 'ph':
-        generate_filters(spectra, outType, [], restBands, obsBands, z, False)
-        nRest = len(restBands)
-        nObs = len(obsBands)
-        c_outType = 0
-    elif outType == 'sp':
-        generate_filters(spectra, outType, [], [], [], z, obsFrame)
-        c_outType = 1
-    elif outType == 'UV slope':
-        generate_filters(spectra, outType, betaBands, [], [], z, False)
-        c_outType = 2
-    else:
-        raise KeyError("outType can only be 'ph', 'sp' and 'UV Slope'")
-    #
-    shrink_templates_raw(spectra, galParams.ageStep[galParams.nAgeStep - 1])
-    return c_outType
 
 
 cdef class sector:
@@ -433,7 +401,7 @@ cdef class sector:
         cdef int iS
         for iS in xrange(self.nSnap):
             free_filters(self.spectra + iS)
-            free_raw_spectra(self.spectra + iS)
+            free_templates_raw(self.spectra + iS)
         free(self.spectra)
 
 
@@ -616,7 +584,7 @@ cdef class calibration:
         for iS in xrange(nSnap):
             free_gal_params(pGalParams)
             free_filters(pSpectra)
-            free_raw_spectra(pSpectra)
+            free_templates_raw(pSpectra)
             #
             pGalParams += 1
             pSpectra += 1
