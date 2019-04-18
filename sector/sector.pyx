@@ -6,6 +6,8 @@ from sfh cimport *
 
 import os, sys
 
+from .filters import *
+
 import numpy as np, h5py
 from numpy import isscalar
 from pandas import DataFrame
@@ -15,10 +17,8 @@ from dragons import meraxes
 
 
 __all__ = [
-    'save_star_formation_history',
     'Lyman_absorption',
-    'HST_filters',
-    'beta_filters',
+    'save_star_formation_history',
     'composite_spectra',
     'calibration',
 ]
@@ -53,54 +53,6 @@ def Lyman_absorption(obsWaves, z):
         int nWaves = len(trans)
     add_Lyman_absorption(&mvTrans[0], &mvObsWaves[0], nWaves, <double>z)
     return trans
-
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-#                                                                               #
-# Functions to process filters                                                  #
-#                                                                               #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-from filters import filterDict
-
-def HST_filters(filterNames):
-    """
-    Quick access HST filters.
-
-    Parameters
-    ----------
-    filterNames: list
-        Available filters: B435, V606, i775, I814, z850, Y098, Y105,
-        J125, H160, 3.6.
-
-    Returns
-    -------
-    obsBands: list
-        For each row, the first element is the filter name, and the
-        second element is the transmission curve. The output can be
-        passed to ``composite_spectra``.
-    """
-    obsBands = []
-    for name in filterNames:
-        obsBands.append([name, np.load(filterDict[name])])
-    return obsBands
-
-
-def beta_filters():
-    #=====================================================================
-    # return the filters defined by Calzetti et al. 1994, which is used to
-    # calculate the UV continuum slope
-    #=====================================================================
-    windows = np.array([[1268., 1284.],
-                        [1309., 1316.],
-                        [1342., 1371.],
-                        [1407., 1515.],
-                        [1562., 1583.],
-                        [1677., 1740.],
-                        [1760., 1833.],
-                        [1866., 1890.],
-                        [1930., 1950.],
-                        [2400., 2580.]])
-    return windows
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -152,7 +104,8 @@ cdef void generate_filters(
             waves = np.asarray(<double[:spectra.nWaves]>spectra.waves)*(1. + z)
             nObsWaves = init_1d_int(np.full(nObs, spectra.nWaves, dtype = 'i4'))
             for iF in range(nObs):
-                fWaves, fTrans = obsBands[iF][1]
+                fWaves = obsBands[iF]['waves']
+                fTrans = obsBands[iF]['trans']
                 trans = np.interp(waves, fWaves, fTrans, left = 0., right = 0.)
                 allTrans = np.append(allTrans, trans)
                 allWaves = np.append(allWaves, waves)
@@ -323,7 +276,7 @@ cdef class sector:
             for iF in xrange(self.nRest):
                 columns.append("M%d-%d"%(self.restBands[iF][0], self.restBands[iF][1]))
             for iF in xrange(self.nObs):
-                columns.append(self.obsBands[iF][0])
+                columns.append(self.obsBands[iF]['name'])
         elif self.outType == 1: # sp
             columns = (1. + sfh.z)*self.waves if self.obsFrame else self.waves
         elif self.outType == 2: # UV slope
