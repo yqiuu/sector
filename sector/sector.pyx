@@ -17,10 +17,10 @@ from dragons import meraxes
 
 
 __all__ = [
-    'Lyman_absorption',
+    'sector',
     'save_star_formation_history',
     'composite_spectra',
-    'calibration',
+    'Lyman_absorption',
 ]
 
 
@@ -479,119 +479,3 @@ def composite_spectra(
         #
         output.to_hdf(get_output_name(prefix, ".hdf5", snapList[iS], outPath), "w")
 
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-#                                                                               #
-# Calibration                                                                   #
-#                                                                               #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-cdef class calibration:
-    cdef:
-        int nSnap
-        gal_params_t *galParams
-        sed_params_t *spectra
-        short approx
-        short nThread
-        tuple args
-
-    def __cinit__(self, sfhList, sedPath, betaBands = [], approx = False, nThread = 1):
-        cdef:
-            int iS
-            int nSnap = len(sfhList)
-            gal_params_t *pGalParams
-            sed_params_t *pSpectra
-            int nBeta
-
-        self.nSnap = nSnap
-        self.galParams = <gal_params_t*>malloc(nSnap*sizeof(gal_params_t))
-        self.spectra = <sed_params_t*>malloc(nSnap*sizeof(sed_params_t))
-        self.approx = <short>approx
-        self.nThread = <short>nThread
-        self.args = (sfhList, sedPath, betaBands, approx, nThread)
-
-        pGalParams = self.galParams
-        pSpectra = self.spectra
-        for iS in xrange(nSnap):
-            # Read star formation rates and metallcities form galaxy merger trees
-            read_gal_params(pGalParams, sfhList[iS])
-            #
-            pSpectra.igm = 0
-            # Read raw SED templates
-            init_templates_raw(pSpectra, os.path.join(sedPath, "sed_library.hdf5"))
-            # Generate filters
-            generate_filters(pSpectra, "UV slope", betaBands, [], [], pGalParams.z, False)
-            #
-            shrink_templates_raw(pSpectra, pGalParams.ageStep[pGalParams.nAgeStep - 1])
-            #
-            pGalParams += 1
-            pSpectra += 1
-
-
-    def __dealloc__(self):
-        cdef:
-            int iS
-            int nSnap = self.nSnap
-            gal_params_t *pGalParams = self.galParams
-            sed_params_t *pSpectra = self.spectra
-
-        for iS in xrange(nSnap):
-            free_gal_params(pGalParams)
-            free_filters(pSpectra)
-            free_templates_raw(pSpectra)
-            #
-            pGalParams += 1
-            pSpectra += 1
-
-        free(self.galParams)
-        free(self.spectra)
-
-
-    def __reduce__(self):
-        return (rebuild_calibration, self.args)
-
-
-    def run(self, dust):
-        cdef:
-            int iS
-            int nSnap = self.nSnap
-            gal_params_t *pGalParams = self.galParams
-            sed_params_t *pSpectra = self.spectra
-            int iG, nGal
-            dust_params_t *dustParams = NULL
-            double *output
-            double *pOutput
-            int nFlux = pSpectra.nFlux
-            int iM1600 = nFlux - 1
-            int nR = 3
-            int iBeta = 0
-            double[:] mvM1600
-            double[:] mvBeta
-        M1600 = np.empty(nSnap, object)
-        beta = np.empty(nSnap, object)
-        for iS in xrange(nSnap):
-            # Compute spectra
-            dustParams = init_dust_parameters(dust[iS])
-            output = composite_spectra_cext(pSpectra, pGalParams, dustParams, 2,
-                                            self.approx, self.nThread)
-            pOutput = output
-            nGal = pGalParams.nGal
-            mvM1600 = np.zeros(nGal, dtype = 'f8')
-            mvBeta = np.zeros(nGal, dtype = 'f8')
-            for iG in xrange(nGal):
-                mvM1600[iG] = pOutput[iM1600]
-                pOutput += nFlux
-            for iG in xrange(nGal):
-                mvBeta[iG] = pOutput[iBeta]
-                pOutput += nR
-            M1600[iS] = np.asarray(mvM1600)
-            beta[iS] = np.asarray(mvBeta)
-            free(dustParams)
-            free(output)
-            #
-            pGalParams += 1
-            pSpectra += 1
-        return M1600, beta
-
-
-def rebuild_calibration(sfhList, sedPath, betaBands, approx, nThread):
-    return calibration(sfhList, sedPath, betaBands, approx, nThread)
