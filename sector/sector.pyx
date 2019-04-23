@@ -220,6 +220,7 @@ cdef class sector:
         int nSnap
         int nRest
         int nObs
+        object betaBands
         object restBands
         object obsBands
         int obsFrame
@@ -330,6 +331,10 @@ cdef class sector:
         self.nSnap = len(self.sfh)
         self.nRest = len(restBands)
         self.nObs = len(obsBands)
+        if betaBands == []:
+            # Use default windows to fit UV slopes
+            betaBands = beta_filters()
+        self.betaBands = betaBands
         self.restBands = restBands
         self.obsBands = obsBands
         self.obsFrame = 1 if obsFrame else 0
@@ -446,10 +451,6 @@ def composite_spectra(
         this function never overwrites an output which has the same name;
         instead it generates an output with a different name.
     """
-    if betaBands == []:
-        # Use default windows to fit UV slopes
-        betaBands = beta_filters()
-
     if isscalar(snapList):
         snapList = [snapList]
         gals = [gals]
