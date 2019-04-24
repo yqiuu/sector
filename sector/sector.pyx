@@ -7,6 +7,7 @@ from sfh cimport *
 import os, sys
 
 from .filters import *
+from .sedlib import STARBURST99_Salpeter
 
 import numpy as np, h5py
 from numpy import isscalar
@@ -323,7 +324,8 @@ cdef class sector:
 
 
     def __cinit__(
-        self, sfh, sedPath, h, Om0, IGM = 'I2014', outType = 'ph', approx = False,
+        self, sfh, h, Om0, sedPath = STARBURST99_Salpeter,
+        IGM = 'I2014', outType = 'ph', approx = False,
         betaBands = [], restBands = [[1600., 100.],], obsBands = [], obsFrame = False,
         pandas = False, nThread = 1
     ):
@@ -344,7 +346,6 @@ cdef class sector:
         self.approx = <short>approx
         self.nThread = <short>nThread
 
-        sedPath = os.path.join(sedPath, "sed_library.hdf5")
         with open(sedPath, 'rb'): pass # Detect IOerror
 
         cdef int iS
@@ -364,7 +365,7 @@ cdef class sector:
 
 
 def composite_spectra(
-    fname, snapList, gals, h, Om0, sedPath,
+    fname, snapList, gals, h, Om0, sedPath = STARBURST99_Salpeter,
     dust = None, approx = False, IGM = 'I2014',
     outType = 'ph',
     betaBands = [], restBands = [[1600, 100],], obsBands = [],
@@ -470,7 +471,7 @@ def composite_spectra(
         if timeGrid != 0:
             sfh.reconstruct(timeGrid)
         core = sector(
-            sfh, sedPath, h, Om0, IGM, outType, approx,
+            sfh, h, Om0, sedPath, IGM, outType, approx,
             betaBands, restBands, obsBands, obsFrame, True, nThread
         )
         if dust is None:
