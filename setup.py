@@ -35,12 +35,14 @@ for e in exts:
 
 exec(open('sector/version.py', 'r').read())
 
-setup(name = 'sector',
-      version = __version__,
-      description = 'Package to compute SEDs for semi-analytic models',
-      author = 'Yisheng Qiu',
-      author_email = 'yishengq@student.unimelb.edu.au',
-      ext_modules = exts,
-      cmdclass = {'build_ext': build_ext},
-      packages = ['sector'],
-      package_data = {'sector/filters':['*.npy']})
+setup(
+    name = 'sector',
+    version = __version__,
+    description = 'Package to compute SEDs for semi-analytic models',
+    author = 'Yisheng Qiu',
+    author_email = 'yishengq@student.unimelb.edu.au',
+    ext_modules = exts,
+    cmdclass = {'build_ext': build_ext},
+    packages = ['sector'],
+    package_data = {'sector/filters':['*.npy'], 'sector/sedlib/':['*.hdf5']}
+)
