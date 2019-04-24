@@ -4,4 +4,4 @@ from .sedlib import *
 from .sector import *
 from . import sfh
 from . import dust
-from . import calib
+from . import calibration

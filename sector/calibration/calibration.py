@@ -1,9 +1,10 @@
 import logging
-import numpy as np
-import pandas as pd
+from copy import deepcopy
 
 from ..dust.dust import compute_mags_mhysa
-from copy import deepcopy
+
+import numpy as np
+import pandas as pd
 from astropy.stats import biweight_location
 
 
