@@ -308,4 +308,5 @@ try:
 
 
 except:
-    raise Exception("Cannot import mhysa!")
+    logging.warn("Cannot import mhysa!")
+
