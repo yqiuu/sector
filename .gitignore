@@ -5,6 +5,7 @@ sector/utils.c
 sector/sector.c
 sector/sfh.c
 sector/dust/dust.c
+docs/_build/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
