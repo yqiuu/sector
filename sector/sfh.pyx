@@ -70,8 +70,12 @@ cdef class galaxy_tree_meraxes:
         print "# snapMin = %d"%snapMin
         for snap in xrange(snapMin, snapNum):
             # Copy first progenitor indices to the pointer
-            self.firstProgenitor[snap] = \
-            init_1d_int(meraxes.io.read_firstprogenitor_indices(fname, snap))
+            try:
+                self.firstProgenitor[snap] = \
+                init_1d_int(meraxes.io.read_firstprogenitor_indices(fname, snap))
+            except KeyError:
+                idx_max = max(meraxes.io.read_firstprogenitor_indices(fname, snap + 1))
+                self.firstProgenitor[snap] = init_1d_int(np.full(idx_max + 1, -1, 'i4'))
             # Copy next progenitor indices to the pointer
             if snap < snapMax:
                 self.nextProgenitor[snap] = \
