@@ -1,3 +1,6 @@
+#ifndef SECTOR_H
+#define SECTOR_H
+
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -122,4 +125,6 @@ void dust_absorption_approx(double *inBCFlux, double *outBCFlux, double *centreW
 void add_Lyman_absorption(double *target, double *waves, int nWaves, double z);
 void add_IGM_absorption_filters(sed_params_t *spectra);
 void add_IGM_absorption_spectra(sed_params_t *spectra, double *pData, int nGal);
+#endif
+
 #endif
