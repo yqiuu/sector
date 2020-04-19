@@ -346,8 +346,6 @@ cdef class sector:
         self.approx = <short>approx
         self.nThread = <short>nThread
 
-        with open(sedPath, 'rb'): pass # Detect IOerror
-
         cdef int iS
         for iS in xrange(self.nSnap):
             self.outType = init_templates_sector(
@@ -456,7 +454,8 @@ def composite_spectra(
         snapList = [snapList]
         gals = [gals]
     snapMax = max(snapList)
-
+    # Detect IOerror
+    with open(sedPath, 'rb'): pass
     # If SFHs are not from files, load outputs from meraxes.
     cdef galaxy_tree_meraxes galData = None
     fromFile = isinstance(gals[0], str)
