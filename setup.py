@@ -1,5 +1,6 @@
 from distutils.core import setup
 from distutils.extension import Extension
+from setuptools import find_packages
 from Cython.Distutils import build_ext
 
 
@@ -43,6 +44,6 @@ setup(
     author_email = 'yishengq@student.unimelb.edu.au',
     ext_modules = exts,
     cmdclass = {'build_ext': build_ext},
-    packages = ['sector'],
+    packages = find_packages(),
     package_data = {'sector/filters':['*.npy'], 'sector/sedlib/':['*.hdf5']}
 )
