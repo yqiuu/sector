@@ -1,6 +1,6 @@
-# magcalc
+# Sector
+An SED calculator for model galaxies from the Meraxes semi-analytic model.
 
-Installation
-============
+## Installation
 
-``pip install git+https://github.com/yqiuu/magcalc/``
+``pip install git+https://github.com/yqiuu/sector/``
